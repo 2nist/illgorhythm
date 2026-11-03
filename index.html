@@ -326,6 +326,7 @@
     </div>
 
     <div class="flex items-center gap-2">
+      <button id="btn-test-kit" class="btn" title="Play each drum once">Test</button>
       <select id="kit-select" class="select" aria-label="Drum kit">
         <option value="Modern Synth">Modern Synth</option>
         <option value="808 Style">808 Style</option>
@@ -731,28 +732,28 @@ const DRUM_KITS = {
     'Kick': () => new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 5, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4 } }),
     'Snare': () => new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.2 } }),
     'Rim': () => new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, oscillator: { type: 'square' }, envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 } }),
-    'Cl Hat': hatVoice({ hp: 5000, q: 0.9, decay: 0.09, volume: -5 }),
-    'Op Hat': hatVoice({ hp: 4600, q: 0.8, decay: 0.42, volume: -8 }),
+    'Cl Hat': hatVoice({ hp: 3800, q: 0.8, decay: 0.11, volume: 2 }),
+    'Op Hat': hatVoice({ hp: 3400, q: 0.7, decay: 0.45, volume: -2 }),
     'Tom': () => new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 3, oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.5, sustain: 0, release: 1 } }),
-    'Cymbal': hatVoice({ hp: 3800, q: 0.7, decay: 1.5, volume: -1 })
+    'Cymbal': hatVoice({ hp: 3000, q: 0.6, decay: 1.5, volume: 2 })
   },
   '808 Style': {
     'Kick': () => new Tone.MembraneSynth({ pitchDecay: 0.005, octaves: 2, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 1.2, sustain: 0.1, release: 2 } }),
     'Snare': () => new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 } }),
     'Rim': () => new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.05 } }),
-    'Cl Hat': hatVoice({ hp: 5600, q: 1.0, decay: 0.07, volume: -4 }),
-    'Op Hat': hatVoice({ hp: 5000, q: 0.8, decay: 0.45, volume: -8 }),
+    'Cl Hat': hatVoice({ hp: 4200, q: 0.9, decay: 0.09, volume: 2 }),
+    'Op Hat': hatVoice({ hp: 3800, q: 0.7, decay: 0.48, volume: -2 }),
     'Tom': () => new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 1.5, oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.8, sustain: 0, release: 1 } }),
-    'Cymbal': hatVoice({ hp: 4200, q: 0.7, decay: 2.0, volume: -2 })
+    'Cymbal': hatVoice({ hp: 3200, q: 0.6, decay: 2.0, volume: 2 })
   },
   'Acoustic / Lo-Fi': {
     'Kick': () => new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 4, oscillator: { type: 'square' }, envelope: { attack: 0.005, decay: 0.2, sustain: 0, release: 0.4 } }),
     'Snare': () => { const s = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.2 } }); s.volume.value = -2; return s; },
     'Rim': () => new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 4, oscillator: { type: 'sawtooth' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.1 } }),
-    'Cl Hat': hatVoice({ hp: 4300, q: 0.7, decay: 0.11, noiseType: 'pink', volume: -3 }),
-    'Op Hat': hatVoice({ hp: 4000, q: 0.6, decay: 0.42, noiseType: 'pink', volume: -6 }),
+    'Cl Hat': hatVoice({ hp: 3500, q: 0.7, decay: 0.14, noiseType: 'pink', volume: 3 }),
+    'Op Hat': hatVoice({ hp: 3200, q: 0.6, decay: 0.46, noiseType: 'pink', volume: 0 }),
     'Tom': () => new Tone.MembraneSynth({ pitchDecay: 0.2, octaves: 5, oscillator: { type: 'triangle' }, envelope: { attack: 0.01, decay: 0.3, sustain: 0, release: 0.5 } }),
-    'Cymbal': hatVoice({ hp: 3400, q: 0.6, decay: 1.4, noiseType: 'pink', volume: 2 })
+    'Cymbal': hatVoice({ hp: 2800, q: 0.6, decay: 1.5, noiseType: 'pink', volume: 4 })
   }
 };
 
@@ -2582,6 +2583,32 @@ function setPatternLength(n) {
   logAction('system', `Pattern length is now ${n} steps.` + (lost ? ` Steps ${n + 1}-${previous} were trimmed — ⌘Z restores them.` : ''));
 }
 
+/** Audition every drum in order, flashing its row label, so a silent voice is
+ *  obvious without needing a pattern. */
+let testing = false;
+function testKit() {
+  if (testing) return;
+  if (!ui.audioReady) { startAudioEngine().then(ok => { if (ok) testKit(); }); return; }
+
+  testing = true;
+  const order = DRUMS;
+  logAction('system', 'Testing ' + doc.kit + ': ' + order.join(', '));
+
+  order.forEach((inst, i) => {
+    setTimeout(() => {
+      playPreview(inst, 1);
+      const label = [...document.querySelectorAll('.row-name')].find(n => n.textContent === inst);
+      if (label) {
+        label.style.transition = 'color .2s';
+        const was = label.style.color;
+        label.style.color = '#ffffff';
+        setTimeout(() => { label.style.color = was; }, 240);
+      }
+      if (i === order.length - 1) setTimeout(() => { testing = false; }, 500);
+    }, i * 420);
+  });
+}
+
 function clearPattern() {
   INSTRUMENTS.forEach(inst => {
     for (let i = 0; i < doc.numSteps; i++) myCells.delete(cellKey(ui.editPatternId, inst, i));
@@ -2727,6 +2754,7 @@ function boot() {
   // actions
   $('#btn-undo').addEventListener('click', undo);
   $('#btn-redo').addEventListener('click', redo);
+  $('#btn-test-kit').addEventListener('click', testKit);
   $('#btn-clear').addEventListener('click', clearPattern);
   $('#btn-share').addEventListener('click', shareLink);
   $('#btn-export-midi').addEventListener('click', exportMidi);
