@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>illgorhythm — turn-based drum machine</title>
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMxMzEzMTUiLz48ZyB0cmFuc2Zvcm09InJvdGF0ZSgtMTYgMzIgMzIpIj48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNWVjOGMwIiBzdHJva2Utd2lkdGg9IjciIHN0cm9rZS1kYXNoYXJyYXk9IjUuMiAzLjEiLz48L2c+PHBhdGggZD0iTTIwIDM0bDMtNiAzIDEwIDMtMTQgMyAxNiAzLTkgMiA0aDUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YxZWRlNiIgc3Ryb2tlLXdpZHRoPSIyLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjwvc3ZnPg==">
 <meta name="description" content="illgorhythm — a turn-based drum machine. Play a friend or the AI with an API key.">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
@@ -487,7 +488,12 @@
     <input id="key-input" type="password" class="field mb-3" placeholder="AIza…" autocomplete="off" spellcheck="false">
 
     <label class="ctl-label block mb-1">Model</label>
-    <input id="model-input" class="field mb-4" placeholder="gemini-2.5-flash" spellcheck="false">
+    <div class="flex gap-2 mb-1">
+      <input id="model-input" class="field flex-1" list="model-list" placeholder="gemini-2.5-flash" spellcheck="false" autocomplete="off">
+      <button id="btn-load-models" class="btn">Load list</button>
+    </div>
+    <datalist id="model-list"></datalist>
+    <p id="model-hint" class="text-[.65rem] mb-4" style="color:var(--muted)">Load the list to see which models this key can actually use.</p>
 
     <div id="stash-row" class="mb-4 hidden">
       <button id="btn-restore-stash" class="btn w-full justify-center">Restore my pre-jam pattern</button>
@@ -1463,7 +1469,68 @@ Tempo: ${doc.bpm} BPM
 Pattern length: ${n} steps`;
 }
 
-async function aiFetch(payload) {
+function googleErrorText(body) {
+  try {
+    const json = JSON.parse(body);
+    return (json.error && json.error.message) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/** Every model this key may call. Throws with Google's own wording on failure. */
+async function fetchModels(key) {
+  const res = await fetch(`${API_BASE}?pageSize=200`, {
+    headers: { 'x-goog-api-key': key || settings.apiKey }
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    const detail = googleErrorText(body);
+    throw new Error(`HTTP ${res.status}${detail ? ' — ' + detail : ''}`);
+  }
+  const json = await res.json();
+  return (json.models || [])
+    .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map(m => String(m.name || '').replace(/^models\//, ''))
+    .filter(Boolean);
+}
+
+/** Prefer something flashy and cheap, then the newest version. */
+function pickModel(models) {
+  const rank = name => {
+    if (/embedding|aqa|imagen|veo|tts|image|vision|learnlm|gemma/i.test(name)) return -1000;
+    let score = 0;
+    if (/flash/i.test(name)) score += 5;
+    if (/lite/i.test(name)) score += 2;
+    if (/pro/i.test(name)) score += 1;
+    if (/preview|experimental|exp-/i.test(name)) score -= 3;
+    const v = name.match(/(\d+\.\d+)/);
+    if (v) score += parseFloat(v[1]);
+    return score;
+  };
+  return models.slice().sort((a, b) => rank(b) - rank(a))[0] || null;
+}
+
+/** A 404 means the model name is wrong for this key. Swap in a real one and retry. */
+async function recoverModel() {
+  try {
+    const models = await fetchModels();
+    const best = pickModel(models);
+    if (!best || best === settings.model) return false;
+
+    const previous = settings.model;
+    settings.model = best;
+    saveSettings();
+    renderAIStatus();
+    logAction('system', `“${previous}” is not available on this key — switched to “${best}”.`);
+    return true;
+  } catch (e) {
+    logAction('system', 'Could not list this key’s models: ' + e.message);
+    return false;
+  }
+}
+
+async function aiFetch(payload, allowRecovery) {
   const url = `${API_BASE}/${encodeURIComponent(settings.model)}:generateContent`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25000);
@@ -1484,6 +1551,11 @@ async function aiFetch(payload) {
           const err = new Error(`HTTP ${res.status}`);
           err.status = res.status;
           err.body = body.slice(0, 300);
+          err.detail = googleErrorText(body);
+
+          if (res.status === 404 && allowRecovery !== false && await recoverModel()) {
+            return aiFetch(payload, false);
+          }
           if (res.status === 429 || res.status >= 500) { lastErr = err; }
           else throw err;
         } else {
@@ -1560,12 +1632,13 @@ async function aiRequest(mode, userText) {
       logAction('system', 'AI request timed out.');
     } else if (e.status === 400 || e.status === 401 || e.status === 403 || e.status === 404) {
       const body = (e.body || '').toLowerCase();
+      const detail = e.detail ? ' — ' + e.detail : '';
       if (body.includes('api key') || e.status === 401 || e.status === 403) {
-        logAction('system', 'That API key was rejected. Check it in ⚙ settings.');
+        logAction('system', 'That API key was rejected. Check it in ⚙ settings.' + detail);
       } else if (e.status === 404 || body.includes('model')) {
-        logAction('system', `Model "${settings.model}" is not available to this key. Change it in ⚙ settings.`);
+        logAction('system', `“${settings.model}” is not available on this key. Open ⚙ and press “Load list” to pick one.` + detail);
       } else {
-        logAction('system', `The request was rejected (${e.status}). Check your key and model in ⚙ settings.`);
+        logAction('system', `The request was rejected (${e.status}). Check your key and model in ⚙ settings.` + detail);
       }
     } else {
       logAction('system', 'AI request failed: ' + e.message);
@@ -1809,6 +1882,43 @@ function setReverbDecay(seconds) {
 }
 
 /* ------------------------------ settings UI ---------------------------- */
+/** Ask the API which models this key can actually call. */
+async function loadModelList() {
+  const key = $('#key-input').value.trim() || settings.apiKey;
+  const hint = $('#model-hint');
+  const btn = $('#btn-load-models');
+
+  if (!key) {
+    hint.style.color = '#f3b3b3';
+    hint.textContent = 'Paste your API key first.';
+    return;
+  }
+
+  btn.disabled = true;
+  hint.style.color = 'var(--muted)';
+  hint.textContent = 'Asking Google…';
+
+  try {
+    const models = await fetchModels(key);
+    const list = $('#model-list');
+    list.replaceChildren(...models.map(name => {
+      const option = document.createElement('option');
+      option.value = name;
+      return option;
+    }));
+
+    hint.style.color = 'var(--muted)';
+    hint.textContent = models.length
+      ? `${models.length} models available · suggested: ${pickModel(models)}`
+      : 'That key returned no text models.';
+  } catch (e) {
+    hint.style.color = '#f3b3b3';
+    hint.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function openSettings() {
   $('#key-input').value = settings.apiKey || '';
   $('#model-input').value = settings.model || DEFAULT_MODEL;
@@ -1823,6 +1933,9 @@ function openSettings() {
   }
 
   $('#settings-modal').showModal();
+
+  // quietly check the key against the live model list
+  if (settings.apiKey && !$('#model-list').children.length) loadModelList();
 }
 
 function closeSettings() { $('#settings-modal').close(); }
@@ -2636,6 +2749,7 @@ function boot() {
 
   $('#btn-settings').addEventListener('click', openSettings);
   $('#btn-restore-stash').addEventListener('click', restorePreJam);
+  $('#btn-load-models').addEventListener('click', loadModelList);
   $('#btn-close-settings').addEventListener('click', closeSettings);
   $('#btn-save-settings').addEventListener('click', () => {
     settings.apiKey = $('#key-input').value.trim();
