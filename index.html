@@ -1811,11 +1811,12 @@ const AI_SCHEMA = {
       items: {
         type: 'OBJECT',
         properties: {
-          op: { type: 'STRING', description: 'One of: add, remove, setVelocity, move' },
+          op: { type: 'STRING', description: 'One of: add, remove, setVelocity, move, fx' },
           instrument: { type: 'STRING', description: 'One of: ' + INSTRUMENTS.join(', ') },
           step: { type: 'INTEGER', description: '1-based target step' },
           toStep: { type: 'INTEGER', description: '1-based destination step, move only' },
-          velocity: { type: 'NUMBER', description: '0.1 to 1.0' }
+          velocity: { type: 'NUMBER', description: '0.1 to 1.0' },
+          fx: { type: 'STRING', description: "For op 'fx' only: 'reverb', 'stutter' or 'none'." }
         },
         required: ['op', 'instrument', 'step']
       }
@@ -1893,6 +1894,7 @@ HARD RULES
 - Velocity 0.1-1.0. Ghost notes 0.2-0.4, accents 0.9-1.0.
 - Keep the low end coherent: avoid stacking Kick and Tom on the same step unless it is a deliberate fill.
 - The "Bass" row is a single monophonic bassline. Its pitch is chosen automatically from the key, so just pick steps and velocities.
+- Use op "fx" on an EXISTING hit to shape it: "stutter" retriggers that drum 2-8 times inside its step (a ratchet), "reverb" adds space around that one hit, "none" clears it. Use effects sparingly: one or two per pattern, on accents, last-bar fills or a single snare, never on every hit.
 - Fewer, better placed notes win. If the pattern is already busy, return few or zero ops.
 - JSON only, matching the schema. "reply" is one short spoken sentence, max 14 words.
 
@@ -2137,6 +2139,17 @@ function applyOpsTo(patId, ops, opts) {
         applied++;
         break;
 
+      case 'fx': {
+        // effects are additive and undoable, so they may land on the human's hits
+        if (!cell.active) return;
+        const target = op.fx === 'none' || op.fx === null ? null : op.fx;
+        if (target !== null && !CELL_FX.includes(target)) return;
+        if (cell.fx === target) return;
+        cell.fx = target;
+        applied++;
+        break;
+      }
+
       case 'setVelocity':
         if (!cell.active) return;
         if (!allowUserEdits && !owned) return;
@@ -2182,8 +2195,10 @@ function applyAIResult(result, mode, patId) {
     // audition what the AI actually added
     if (ui.audioReady) {
       ops.slice(0, 3).forEach((op, i) => {
-        if (op.op !== 'add' || !INSTRUMENTS.includes(op.instrument)) return;
-        setTimeout(() => playPreview(op.instrument, clamp(Number(op.velocity) || 1, 0.1, 1)), 120 + i * 160);
+        if (!INSTRUMENTS.includes(op.instrument)) return;
+        if (op.op !== 'add' && op.op !== 'fx') return;
+        const fx = op.op === 'fx' ? (op.fx === 'none' ? null : op.fx) : null;
+        setTimeout(() => playPreview(op.instrument, clamp(Number(op.velocity) || 0.9, 0.1, 1), null, null, fx), 120 + i * 160);
       });
     }
   }
