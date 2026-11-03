@@ -748,7 +748,11 @@ async function setupAudio() {
   bus.connect(reverbSend); reverbSend.connect(reverb); reverb.connect(comp);
   bus.connect(delaySend);  delaySend.connect(delay);   delay.connect(comp);
 
-  await reverb.generate();
+  // the IR render is the slowest part of startup; don't let it hold the engine hostage
+  await Promise.race([
+    reverb.generate(),
+    new Promise(resolve => setTimeout(resolve, 2000))
+  ]);
   lastRevDecay = doc.fx.revDecay;
   loadDrumKit(doc.kit);
   initSequence();
@@ -1982,6 +1986,10 @@ function onPeerError(err) {
     'webrtc': 'The peer-to-peer link failed (restrictive network?).'
   };
   sessionError(messages[type] || ('Session error: ' + (type || 'unknown')));
+
+  // a guest who never reached (or lost) the host falls back to solo,
+  // otherwise every transport click would be forwarded into the void
+  if (netGuest() && !guestLinkAlive()) leaveSession(true);
   renderSessionUI();
 }
 
@@ -2208,6 +2216,45 @@ async function copyInvite() {
 }
 
 /* -------------------------------- wiring ------------------------------- */
+let audioStarting = null;
+
+/** Start Web Audio. Safe to call from any click; returns true when the engine runs. */
+function startAudioEngine() {
+  if (ui.audioReady) return Promise.resolve(true);
+  if (audioStarting) return audioStarting;
+
+  audioStarting = bootAudio().finally(() => { audioStarting = null; });
+  return audioStarting;
+}
+
+async function bootAudio() {
+  const btn = $('#btn-start-audio');
+  btn.disabled = true;
+  btn.textContent = 'Waking the audio engine…';
+
+  try {
+    await Tone.start();
+    await setupAudio();
+    ui.audioReady = true;
+
+    const modal = $('#start-modal');
+    if (modal.open) modal.close();
+
+    renderGrid();
+    if (netGuest()) { startClock(); pingNow(); }
+
+    btn.disabled = false;
+    btn.textContent = 'Start making beats';
+    return true;
+  } catch (e) {
+    console.error(e);
+    btn.disabled = false;
+    btn.textContent = 'Audio failed — retry';
+    logAction('system', 'The audio engine could not start. Tap “Start making beats” to retry.');
+    return false;
+  }
+}
+
 function setTransport(playing) {
   if (!ui.audioReady) return;
   ui.isPlaying = playing;
@@ -2224,9 +2271,28 @@ function setTransport(playing) {
   updatePatternButtonsUI();
 }
 
+function guestLinkAlive() {
+  return netGuest() && !!Net.hostConn && Net.hostConn.open;
+}
+
 function togglePlay() {
-  if (!ui.audioReady) return;
-  if (netGuest()) { sendToHost({ t: 'requestTransport' }); return; }
+  // no audio yet: a click is a user gesture, so just start the engine and play
+  if (!ui.audioReady) {
+    startAudioEngine().then(ok => { if (ok) togglePlay(); });
+    return;
+  }
+
+  if (netGuest()) {
+    if (!guestLinkAlive()) {
+      leaveSession(true);
+      logAction('system', 'The jam connection is gone — playing solo again.');
+      setTransport(!ui.isPlaying);
+      return;
+    }
+    sendToHost({ t: 'requestTransport' });
+    return;
+  }
+
   if (ui.chainMode && !ui.isPlaying) { ui.chainIndex = 0; ui.chainRepeat = 0; }
   setTransport(!ui.isPlaying);
   if (netHost()) broadcast({ t: 'transport', playing: ui.isPlaying, sec: Tone.Transport.seconds });
@@ -2346,22 +2412,8 @@ function boot() {
   startModal.showModal();
 
   $('#btn-start-audio').addEventListener('click', async () => {
-    const btn = $('#btn-start-audio');
-    btn.disabled = true;
-    btn.textContent = 'Waking the audio engine…';
-    try {
-      await Tone.start();
-      await setupAudio();
-      ui.audioReady = true;
-      startModal.close();
-      renderGrid();
-      if (netGuest()) { startClock(); pingNow(); }
-      logAction('ai', "I'm listening. Drop a hit anywhere and I'll answer.");
-    } catch (e) {
-      console.error(e);
-      btn.disabled = false;
-      btn.textContent = 'Audio failed — retry';
-    }
+    const ok = await startAudioEngine();
+    if (ok) logAction('ai', "I'm listening. Drop a hit anywhere and I'll answer.");
   });
 
   $('#btn-skip-audio').addEventListener('click', () => startModal.close());
