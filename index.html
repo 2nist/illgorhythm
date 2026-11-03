@@ -500,6 +500,8 @@
       <p id="stash-hint" class="text-[.65rem] mt-1.5" style="color:var(--muted)"></p>
     </div>
 
+    <p id="build-tag" class="text-[.6rem] mb-2" style="color:#5f5f68"></p>
+
     <div class="flex items-center justify-between gap-2">
       <button id="btn-reset-all" class="btn btn-danger">Reset everything</button>
       <div class="flex gap-2">
@@ -587,6 +589,7 @@ const SETTINGS_KEY = 'illgorhythm.settings.v1';
 const MASTER_STEPS = 192;
 
 const DEFAULT_MODEL = 'gemini-2.5-flash';
+const BUILD = '2026-11-03 · hats';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const INSTRUMENTS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal', 'FX Reverb', 'FX Delay'];
@@ -728,28 +731,28 @@ const DRUM_KITS = {
     'Kick': () => new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 5, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4 } }),
     'Snare': () => new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.2 } }),
     'Rim': () => new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, oscillator: { type: 'square' }, envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 } }),
-    'Cl Hat': hatVoice({ hp: 9000, q: 1.4, decay: 0.035, volume: -12 }),
-    'Op Hat': hatVoice({ hp: 8200, q: 1.2, decay: 0.32, volume: -15 }),
+    'Cl Hat': hatVoice({ hp: 5000, q: 0.9, decay: 0.09, volume: -5 }),
+    'Op Hat': hatVoice({ hp: 4600, q: 0.8, decay: 0.42, volume: -8 }),
     'Tom': () => new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 3, oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.5, sustain: 0, release: 1 } }),
-    'Cymbal': hatVoice({ hp: 6500, q: 1.0, decay: 1.3, volume: -13 })
+    'Cymbal': hatVoice({ hp: 3800, q: 0.7, decay: 1.5, volume: -1 })
   },
   '808 Style': {
     'Kick': () => new Tone.MembraneSynth({ pitchDecay: 0.005, octaves: 2, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 1.2, sustain: 0.1, release: 2 } }),
     'Snare': () => new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 } }),
     'Rim': () => new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.05 } }),
-    'Cl Hat': hatVoice({ hp: 10500, q: 1.5, decay: 0.025, volume: -11 }),
-    'Op Hat': hatVoice({ hp: 8800, q: 1.3, decay: 0.38, volume: -15 }),
+    'Cl Hat': hatVoice({ hp: 5600, q: 1.0, decay: 0.07, volume: -4 }),
+    'Op Hat': hatVoice({ hp: 5000, q: 0.8, decay: 0.45, volume: -8 }),
     'Tom': () => new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 1.5, oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.8, sustain: 0, release: 1 } }),
-    'Cymbal': hatVoice({ hp: 7000, q: 1.1, decay: 1.8, volume: -15 })
+    'Cymbal': hatVoice({ hp: 4200, q: 0.7, decay: 2.0, volume: -2 })
   },
   'Acoustic / Lo-Fi': {
     'Kick': () => new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 4, oscillator: { type: 'square' }, envelope: { attack: 0.005, decay: 0.2, sustain: 0, release: 0.4 } }),
     'Snare': () => { const s = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.2 } }); s.volume.value = -2; return s; },
     'Rim': () => new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 4, oscillator: { type: 'sawtooth' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.1 } }),
-    'Cl Hat': hatVoice({ hp: 7200, q: 0.9, decay: 0.06, volume: -13 }),
-    'Op Hat': hatVoice({ hp: 6800, q: 0.8, decay: 0.34, volume: -16 }),
+    'Cl Hat': hatVoice({ hp: 4300, q: 0.7, decay: 0.11, noiseType: 'pink', volume: -3 }),
+    'Op Hat': hatVoice({ hp: 4000, q: 0.6, decay: 0.42, noiseType: 'pink', volume: -6 }),
     'Tom': () => new Tone.MembraneSynth({ pitchDecay: 0.2, octaves: 5, oscillator: { type: 'triangle' }, envelope: { attack: 0.01, decay: 0.3, sustain: 0, release: 0.5 } }),
-    'Cymbal': hatVoice({ hp: 5200, q: 0.8, decay: 1.2, volume: -14 })
+    'Cymbal': hatVoice({ hp: 3400, q: 0.6, decay: 1.4, noiseType: 'pink', volume: 2 })
   }
 };
 
@@ -766,11 +769,15 @@ const ARTICULATION = {
 
 /* ------------------------------- audio --------------------------------- */
 const synths = {};
-let bus, comp, driveNode, reverb, delay, reverbSend, delaySend;
+let bus, comp, driveNode, reverb, delay, reverbSend, delaySend, limiter;
 let toneSequence = null;
 
 async function setupAudio() {
-  comp = new Tone.Compressor({ threshold: -18, ratio: 3, attack: 0.004, release: 0.18 }).toDestination();
+  // a limiter on the master: drum peaks sum well past 0 dBFS and clipping
+  // smears exactly the transients that make hats readable
+  limiter = new Tone.Limiter(-1).toDestination();
+  const headroom = new Tone.Gain(0.6).connect(limiter);
+  comp = new Tone.Compressor({ threshold: -18, ratio: 3, attack: 0.004, release: 0.18 }).connect(headroom);
   driveNode = new Tone.Distortion({ distortion: 0.4, oversample: '2x', wet: doc.fx.drive / 100 });
   driveNode.connect(comp);
 
@@ -800,20 +807,35 @@ async function setupAudio() {
 function loadDrumKit(name) {
   const kit = DRUM_KITS[name];
   if (!kit) return;
+  Object.keys(lastTriggerAt).forEach(k => delete lastTriggerAt[k]);
   DRUMS.forEach(inst => {
     if (synths[inst]) synths[inst].dispose();
     synths[inst] = kit[inst]().connect(bus);
   });
 }
 
-/** Single choke point for every drum hit — sequencer previews and AI previews. */
+const lastTriggerAt = Object.create(null);
+
+/** Single choke point for every drum hit — sequencer, previews and AI auditions.
+ *  Tone's sources reject a start time that is not strictly increasing, and a
+ *  preview click can land before a note the sequencer already queued ahead. */
 function triggerInstrument(inst, time, velocity) {
   const synth = synths[inst];
   if (!synth) return;
   const art = ARTICULATION[inst];
   if (!art) return;
-  if (art.type === 'membrane') synth.triggerAttackRelease(art.note, art.dur, time, velocity);
-  else synth.triggerAttackRelease(art.dur, time, velocity);
+
+  let t = time;
+  const last = lastTriggerAt[inst];
+  if (last !== undefined && t <= last) t = last + 0.002;
+  lastTriggerAt[inst] = t;
+
+  try {
+    if (art.type === 'membrane') synth.triggerAttackRelease(art.note, art.dur, t, velocity);
+    else synth.triggerAttackRelease(art.dur, t, velocity);
+  } catch (e) {
+    console.warn('trigger failed', inst, e && e.message);
+  }
 }
 
 function jitter(time, amount) {
@@ -1955,6 +1977,7 @@ async function loadModelList() {
 }
 
 function openSettings() {
+  $('#build-tag').textContent = 'illgorhythm build ' + BUILD;
   $('#key-input').value = settings.apiKey || '';
   $('#model-input').value = settings.model || DEFAULT_MODEL;
 
