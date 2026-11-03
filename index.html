@@ -134,6 +134,12 @@
   .cell.fxrow.you{ background:var(--tan-dim); border-color:#a1794f; box-shadow:none; }
   .cell.fxrow.ai{ background:var(--teal-dim); border-color:#4f9a94; box-shadow:none; }
   .cell.fxrow.peer{ background:#4a8b86; border-color:#71b5af; box-shadow:none; }
+  .cell.fx-stutter{ box-shadow: 0 0 0 2px rgba(255,255,255,.75), 0 0 12px rgba(255,255,255,.25); }
+  .cell.fx-reverb{ box-shadow: 0 0 0 2px rgba(147,197,253,.8), 0 0 12px rgba(147,197,253,.25); }
+  .cell .fx-badge{
+    position:absolute; top:1px; left:3px; font-size:.6rem; line-height:1; font-weight:800;
+    color:rgba(0,0,0,.8); pointer-events:none;
+  }
   .cell .note-label{
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     font-size:.52rem; font-weight:800; letter-spacing:.02em; color:rgba(0,0,0,.6);
@@ -410,7 +416,7 @@
   <div id="fx-drawer" class="panel p-4 mt-3 hidden">
     <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
       <h3 class="ctl-label">Master FX</h3>
-      <span class="text-[.65rem]" style="color:#6f6f79">FX rows are per-step sends · Stutter = ratchet the mix</span>
+      <span class="text-[.65rem]" style="color:#6f6f79">alt-click any cell to add reverb or stutter · stutter retriggers that drum</span>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
       <div>
@@ -418,15 +424,17 @@
         <input type="range" id="rev-decay" min="2" max="80" value="25" class="w-full">
       </div>
       <div>
-        <label class="ctl-label flex justify-between mb-1"><span>Stutter repeats</span><span id="fb-display" class="font-mono">82%</span></label>
+        <label class="ctl-label flex justify-between mb-1"><span>Stutter decay</span><span id="fb-display" class="font-mono">82%</span></label>
         <input type="range" id="delay-fb" min="10" max="95" value="82" class="w-full">
       </div>
       <div>
-        <label class="ctl-label mb-1 block">Stutter rate</label>
-        <select id="delay-time" class="select w-full">
-          <option value="16n">1/16 ratchet</option>
-          <option value="32n" selected>1/32 ratchet</option>
-          <option value="64n">1/64 roll</option>
+        <label class="ctl-label mb-1 block">Stutter hits</label>
+        <select id="stutter-hits" class="select w-full">
+          <option value="2">2 per step</option>
+          <option value="3">3 per step</option>
+          <option value="4" selected>4 per step</option>
+          <option value="6">6 per step</option>
+          <option value="8">8 per step</option>
         </select>
       </div>
       <div>
@@ -648,13 +656,13 @@ const SETTINGS_KEY = 'illgorhythm.settings.v1';
 const MASTER_STEPS = 192;
 
 const DEFAULT_MODEL = 'gemini-2.5-flash';
-const BUILD = '2026-11-03 · bass';
+const BUILD = '2026-11-03 · per-cell fx';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const BASS_TRACK = 'Bass';
-const INSTRUMENTS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal', BASS_TRACK, 'FX Reverb', 'FX Stutter'];
+const INSTRUMENTS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal', BASS_TRACK];
 const DRUMS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal'];
-const FX_TRACKS = ['FX Reverb', 'FX Stutter'];
+const FX_TRACKS = [];
 const PATTERN_IDS = ['A', 'B', 'Fill'];
 
 const BASS_ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -675,11 +683,14 @@ const settings = Object.assign(
 );
 
 /* ------------------------------- model --------------------------------- */
-function blankCell(note) { return { active: false, owner: null, velocity: 1, note: note == null ? null : note }; }
+function blankCell(note) { return { active: false, owner: null, velocity: 1, note: note == null ? null : note, fx: null }; }
 
 /** Bass cells need a pitch and a length; drums ignore both. */
-function bassCell(note, velocity, dur) {
-  return { active: true, owner: 'you', velocity, note, dur: dur || '8n' };
+const CELL_FX = ['reverb', 'stutter'];
+
+function nextCellFx(current) {
+  const order = [null].concat(CELL_FX);
+  return order[(order.indexOf(current || null) + 1) % order.length];
 }
 
 function midiToName(note) {
@@ -710,7 +721,7 @@ function newDoc() {
       { pattern: 'A', repeats: 1 },
       { pattern: 'Fill', repeats: 1 }
     ],
-    fx: { revDecay: 2.5, stutterFb: 0.82, stutterRate: '32n', drive: 0 },
+    fx: { revDecay: 2.5, stutterFb: 0.82, stutterHits: 4, drive: 0 },
     bass: { root: 'A', mode: 'Aeolian', timbre: '808', energy: 0.5, syncopation: 0.5, complexity: 0.5, octave: 1, seed: 20261103 },
     patterns: { A: newPattern(16), B: newPattern(16), Fill: newPattern(16) }
   };
@@ -739,7 +750,10 @@ function ensureDocShape(input) {
   d.fx = {
     revDecay: clamp(Number(fxIn.revDecay) || 2.5, 0.2, 8),
     stutterFb: legacyFx ? 0.82 : clamp(Number(fxIn.stutterFb) || 0.82, 0.1, 0.95),
-    stutterRate: !legacyFx && ['16n', '32n', '64n'].includes(fxIn.stutterRate) ? fxIn.stutterRate : '32n',
+    stutterHits: legacyFx
+      ? 4
+      : ([2, 3, 4, 6, 8].includes(Number(fxIn.stutterHits)) ? Number(fxIn.stutterHits)
+        : ({ '16n': 2, '32n': 4, '64n': 8 })[fxIn.stutterRate] || 4),
     drive: clamp(Number(fxIn.drive) || 0, 0, 100)
   };
 
@@ -778,6 +792,7 @@ function ensureDocShape(input) {
           cell.note = Number.isFinite(c.note) ? c.note : 45;
           cell.dur = typeof c.dur === 'string' ? c.dur : '8n';
         }
+        if (CELL_FX.includes(c.fx)) cell.fx = c.fx;
         return cell;
       });
     });
@@ -969,7 +984,8 @@ const ARTICULATION = {
 
 /* ------------------------------- audio --------------------------------- */
 const synths = {};
-let bus, comp, driveNode, reverb, stutter, stutterTone, reverbSend, stutterSend, limiter, bassSynth;
+let bus, comp, driveNode, reverb, limiter, bassSynth;
+const reverbSendByInst = {};
 let toneSequence = null;
 
 async function setupAudio() {
@@ -984,15 +1000,9 @@ async function setupAudio() {
   bus = new Tone.Gain(1);
   bus.connect(driveNode);
 
-  reverbSend = new Tone.Gain(0);
-  stutterSend = new Tone.Gain(0);
   reverb = new Tone.Reverb({ decay: doc.fx.revDecay, preDelay: 0.02, wet: 1 });
-  // a very short, high-feedback delay is a ratchet: it chops what it is fed into repeats
-  stutter = new Tone.FeedbackDelay({ delayTime: doc.fx.stutterRate, feedback: doc.fx.stutterFb, wet: 1 });
-  stutterTone = new Tone.Filter({ type: 'lowpass', frequency: 7000, Q: 0.4 });
 
-  bus.connect(reverbSend); reverbSend.connect(reverb); reverb.connect(comp);
-  bus.connect(stutterSend); stutterSend.connect(stutter); stutter.connect(stutterTone); stutterTone.connect(comp);
+  reverb.connect(comp);
 
   // the IR render is the slowest part of startup; don't let it hold the engine hostage
   await Promise.race([
@@ -1048,6 +1058,7 @@ function buildBassVoice() {
 
   synths[BASS_TRACK] = bassSynth;
   delete lastTriggerAt[BASS_TRACK];
+  wireReverbSends();
 }
 
 /** Morph the synth voice to the chosen timbre. */
@@ -1084,6 +1095,19 @@ function loadDrumKit(name) {
     if (synths[inst]) synths[inst].dispose();
     synths[inst] = kit[inst]().connect(bus);
   });
+  wireReverbSends();
+}
+
+/** One reverb send per voice, so a cell can be drenched without touching the rest. */
+function wireReverbSends() {
+  if (!reverb) return;
+  Object.keys(synths).forEach(inst => {
+    if (reverbSendByInst[inst]) { try { reverbSendByInst[inst].dispose(); } catch (e) { /* gone */ } }
+    const send = new Tone.Gain(0);
+    synths[inst].connect(send);
+    send.connect(reverb);
+    reverbSendByInst[inst] = send;
+  });
 }
 
 const lastTriggerAt = Object.create(null);
@@ -1118,43 +1142,45 @@ function jitter(time, amount) {
   return base + (Math.random() * 2 - 1) * amount * 0.012;
 }
 
-/** Per-step FX send. Reverb opens for its tail; the stutter opens for one
- *  slice so the ratchet repeats that slice instead of smearing the whole bar. */
-function fireSend(inst, cell, time) {
-  const isReverb = inst === 'FX Reverb';
-  const send = isReverb ? reverbSend : stutterSend;
-  if (!send) return;
+/** How long one 16th step lasts right now. */
+function stepSeconds() {
+  return (60 / Tone.Transport.bpm.value) / 4;
+}
 
-  const g = send.gain;
-  const level = clamp(cell.velocity, 0.02, 1);
-  const slice = clamp(Tone.Time(doc.fx.stutterRate).toSeconds(), 0.008, 0.2);
-
-  g.cancelScheduledValues(time);
-  g.setValueAtTime(level, time);
-
-  if (isReverb) {
-    g.exponentialRampToValueAtTime(0.0001, time + clamp(doc.fx.revDecay, 0.15, 8));
+/** Fire a voice once, or ratchet it n times inside the step. */
+function triggerCell(inst, time, cell, note, dur) {
+  const hits = cell.fx === 'stutter' ? clamp(parseInt(doc.fx.stutterHits, 10) || 4, 2, 8) : 1;
+  if (hits === 1) {
+    triggerInstrument(inst, time, cell.velocity, note, dur);
   } else {
-    // gate shorter than one repeat, otherwise the copies overlap into a smear
-    g.linearRampToValueAtTime(0.0001, time + slice * (0.3 + level * 0.3));
+    const span = stepSeconds();
+    const fall = 0.55 + 0.45 * doc.fx.stutterFb;   // how flat the roll stays
+    for (let k = 0; k < hits; k++) {
+      triggerInstrument(inst, time + (k * span) / hits, cell.velocity * Math.pow(fall, k), note, dur);
+    }
   }
+  if (cell.fx === 'reverb') fireReverb(inst, time, cell.velocity);
+}
+
+function fireReverb(inst, time, level) {
+  const send = reverbSendByInst[inst];
+  if (!send) return;
+  const g = send.gain;
+  g.cancelScheduledValues(time);
+  g.setValueAtTime(clamp(level, 0.05, 1), time);
+  g.exponentialRampToValueAtTime(0.0001, time + 0.5);
 }
 
 let lastPreviewAt = 0;
 
-function playPreview(inst, velocity, note, dur) {
+function playPreview(inst, velocity, note, dur, fx) {
   if (!ui.audioReady || Tone.context.state !== 'running') return;
   // Tone's noise and metal sources need strictly increasing start times, and
   // rapid clicks can land on the same Tone.now() tick.
   const t = Math.max(Tone.now() + 0.02, lastPreviewAt + 0.006);
   lastPreviewAt = t;
   try {
-    if (FX_TRACKS.includes(inst)) {
-      fireSend(inst, { velocity }, t);
-      triggerInstrument('Kick', t, 0.55);   // something for the send to chew on
-    } else {
-      triggerInstrument(inst, t, velocity, note, dur);
-    }
+    triggerCell(inst, t, { velocity, fx: fx || null }, note, dur);
   } catch (e) {
     // never let an audio hiccup swallow the edit that follows
     console.warn('preview failed', e);
@@ -1177,23 +1203,15 @@ function initSequence() {
 
     Tone.Draw.schedule(() => updatePlayhead(step), time);
 
-    FX_TRACKS.forEach(fx => {
-      if (ui.muted.has(fx)) return;
-      const cell = pat[fx] && pat[fx][step];
-      if (cell && cell.active) fireSend(fx, cell, jitter(time, hum * 0.4));
-    });
-
     DRUMS.forEach(inst => {
       if (ui.muted.has(inst)) return;
       const cell = pat[inst] && pat[inst][step];
-      if (cell && cell.active) triggerInstrument(inst, jitter(time, hum), cell.velocity);
+      if (cell && cell.active) triggerCell(inst, jitter(time, hum), cell);
     });
 
     if (!ui.muted.has(BASS_TRACK)) {
       const bass = pat[BASS_TRACK] && pat[BASS_TRACK][step];
-      if (bass && bass.active) {
-        triggerInstrument(BASS_TRACK, jitter(time, hum * 0.5), bass.velocity, bass.note, bass.dur);
-      }
+      if (bass && bass.active) triggerCell(BASS_TRACK, jitter(time, hum * 0.5), bass, bass.note, bass.dur);
     }
   }, steps, '16n');
 
@@ -1253,23 +1271,15 @@ function renderGrid() {
   frag.appendChild(head);
 
   INSTRUMENTS.forEach(inst => {
-    const isFx = FX_TRACKS.includes(inst);
-
-    if (inst === 'FX Reverb') {
-      const rule = document.createElement('div');
-      rule.className = 'my-1';
-      rule.style.borderTop = '1px dashed var(--line)';
-      frag.appendChild(rule);
-    }
 
     const row = document.createElement('div');
-    row.className = 'grid-row py-0.5' + (isFx ? ' fx-track' : '');
+    row.className = 'grid-row py-0.5';
 
     const labelBox = document.createElement('div');
     labelBox.className = 'row-label';
 
     const name = document.createElement('span');
-    name.className = 'row-name' + (isFx ? ' fxname' : '');
+    name.className = 'row-name';
     name.textContent = inst;
 
     const mute = document.createElement('button');
@@ -1293,7 +1303,8 @@ function renderGrid() {
     for (let i = 0; i < doc.numSteps; i++) {
       const cell = pat[inst][i];
       const el = document.createElement('div');
-      el.className = 'cell' + (i % 4 === 0 ? ' beat' : '') + (isFx ? ' fxrow' : '');
+      el.className = 'cell' + (i % 4 === 0 ? ' beat' : '');
+      if (cell.active && cell.fx) el.classList.add(cell.fx === 'stutter' ? 'fx-stutter' : 'fx-reverb');
       if (cell.active) el.classList.add(cell.owner === 'ai' ? 'ai' : cell.owner === 'peer' ? 'peer' : 'you');
       el.dataset.inst = inst;
       el.dataset.step = i;
@@ -1308,6 +1319,14 @@ function renderGrid() {
         label.className = 'note-label';
         label.textContent = midiToName(cell.note);
         el.appendChild(label);
+      }
+
+      if (cell.active && cell.fx) {
+        const badge = document.createElement('div');
+        badge.className = 'fx-badge';
+        badge.textContent = cell.fx === 'stutter' ? 'S' : 'R';
+        badge.title = cell.fx === 'stutter' ? 'Stutter' : 'Reverb';
+        el.appendChild(badge);
       }
 
       if (cell.active) {
@@ -1422,7 +1441,7 @@ function syncControlsFromDoc() {
   $('#rev-display').textContent = doc.fx.revDecay.toFixed(1) + 's';
   $('#delay-fb').value = Math.round(doc.fx.stutterFb * 100);
   $('#fb-display').textContent = Math.round(doc.fx.stutterFb * 100) + '%';
-  $('#delay-time').value = doc.fx.stutterRate;
+  $('#stutter-hits').value = String(doc.fx.stutterHits);
   $('#drive').value = doc.fx.drive;
   $('#drive-display').textContent = Math.round(doc.fx.drive) + '%';
 
@@ -1528,12 +1547,21 @@ function handleCellClick(inst, step, clear, alt) {
   const pat = doc.patterns[ui.editPatternId];
   const cell = pat[inst][step];
 
-  if (inst === BASS_TRACK && alt && cell.active && !clear) {
-    cycleBassPitch(cell);
+  if (alt && cell.active && !clear) {
+    if (inst === BASS_TRACK && !cell.fx) {
+      // first alt-click on a bass note re-pitches it, the next ones add effects
+      cycleBassPitch(cell);
+      renderGrid();
+      playPreview(inst, cell.velocity, cell.note, cell.dur);
+      logAction('you', `Bass ${midiToName(cell.note)} · step ${step + 1}`);
+      commit('bass pitch ' + midiToName(cell.note), { inst, step });
+      return;
+    }
+    cell.fx = nextCellFx(cell.fx);
     renderGrid();
-    playPreview(inst, cell.velocity, cell.note, cell.dur);
-    logAction('you', `Bass ${midiToName(cell.note)} · step ${step + 1}`);
-    commit('bass pitch ' + midiToName(cell.note), { inst, step });
+    playPreview(inst, cell.velocity, cell.note, cell.dur, cell.fx);
+    logAction('you', cell.fx ? `${inst} · step ${step + 1} → ${cell.fx}` : `${inst} · step ${step + 1} · effect off`);
+    commit('fx ' + (cell.fx || 'none'), { inst, step });
     return;
   }
 
@@ -1682,7 +1710,7 @@ function encodeShare() {
       doc.patterns[pat][inst].forEach((c, i) => {
         if (!c.active) return;
         const hit = [i, Math.round(c.velocity * 100) / 100, c.owner === 'ai' ? 1 : 0];
-        if (inst === BASS_TRACK) { hit.push(c.note, c.dur || '8n'); }
+        hit.push(inst === BASS_TRACK ? c.note : null, inst === BASS_TRACK ? (c.dur || '8n') : null, c.fx || null);
         hits.push(hit);
       });
       if (hits.length) compact[inst] = hits;
@@ -1718,13 +1746,14 @@ function decodeShare(code) {
       const src = (payload.p && payload.p[pat]) || {};
       INSTRUMENTS.forEach(inst => {
         (src[inst] || []).forEach(hit => {
-          const [i, vel, ai, note, dur] = hit;
+          const [i, vel, ai, note, dur, fx] = hit;
           if (i >= 0 && i < d.numSteps) {
             const cell = { active: true, velocity: clamp(vel || 1, 0.05, 1), owner: ai ? 'ai' : 'you', note: null };
             if (inst === BASS_TRACK) {
               cell.note = Number.isFinite(note) ? note : 45;
               cell.dur = typeof dur === 'string' ? dur : '8n';
             }
+            if (CELL_FX.includes(fx)) cell.fx = fx;
             d.patterns[pat][inst][i] = cell;
           }
         });
@@ -1860,7 +1889,6 @@ The human places hits; you answer with a small, musical set of edits.
 HARD RULES
 - Steps are 1-based integers, 1..${n}.
 - Allowed instruments exactly: ${INSTRUMENTS.join(', ')}.
-- "FX Reverb" and "FX Stutter" are per-step send levels, not sounds: velocity = how hard that step hits the effect. Stutter is a short ratchet that repeats a slice of the mix.
 - Never place the same instrument twice on the same step.
 - Velocity 0.1-1.0. Ghost notes 0.2-0.4, accents 0.9-1.0.
 - Keep the low end coherent: avoid stacking Kick and Tom on the same step unless it is a deliberate fill.
@@ -2278,10 +2306,7 @@ let lastRevDecay = null;
 
 function applyFxParams() {
   if (!ui.audioReady) return;
-  if (stutter) {
-    stutter.feedback.rampTo(doc.fx.stutterFb, 0.05);
-    stutter.delayTime.rampTo(Tone.Time(doc.fx.stutterRate).toSeconds(), 0.05);
-  }
+  // stutter hits and decay are read when a cell fires, so only drive needs automating
   if (driveNode) {
     driveNode.distortion = 0.15 + (doc.fx.drive / 100) * 0.8;
     driveNode.wet.rampTo(doc.fx.drive / 100, 0.05);
@@ -3193,10 +3218,9 @@ function boot() {
   });
   fb.addEventListener('change', () => commit('stutter repeats'));
 
-  $('#delay-time').addEventListener('change', e => {
-    doc.fx.stutterRate = e.target.value;
-    applyFxParams();
-    commit('stutter rate');
+  $('#stutter-hits').addEventListener('change', e => {
+    doc.fx.stutterHits = parseInt(e.target.value, 10);
+    commit('stutter hits');
   });
 
   const dr = $('#drive');
