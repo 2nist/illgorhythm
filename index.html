@@ -1,0 +1,2553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>illgorhythm — turn-based AI drum machine</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,600;0,800;1,800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#131315;
+    --panel:#1b1b1e;
+    --panel-2:#212125;
+    --panel-3:#292930;
+    --line:#2e2e35;
+    --text:#f1ede6;
+    --muted:#8d8d96;
+    --teal:#5ec8c0;
+    --teal-dim:#2e6b67;
+    --tan:#d9a877;
+    --tan-dim:#7a5a38;
+    --cell:2.25rem;
+    --gap:.5rem;
+  }
+  @media (min-width:640px){ :root{ --cell:2.5rem; } }
+
+  html,body{ height:100%; }
+  body{
+    font-family:'Inter',system-ui,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    overscroll-behavior:none;
+    background-image:radial-gradient(60rem 30rem at 50% -10%, rgba(94,200,192,.07), transparent 70%);
+  }
+
+  .wordmark{
+    font-weight:800; font-style:italic; letter-spacing:-.035em; line-height:1;
+    font-size:clamp(1.6rem,3.4vw,2.4rem);
+    color:var(--tan); text-shadow:0 2px 18px rgba(217,168,119,.18);
+  }
+  .wordmark .o{ color:var(--teal); }
+  .tagline{
+    font-size:.64rem; letter-spacing:.2em; text-transform:uppercase;
+    color:var(--muted); margin-top:.4rem;
+  }
+
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:.9rem; }
+  .ctl-label{ font-size:.63rem; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+
+  .select{
+    background:var(--panel-3); border:1px solid var(--line); color:var(--text);
+    border-radius:.45rem; padding:.32rem .5rem; font-size:.8rem; outline:none;
+  }
+  .select:focus{ border-color:var(--teal); }
+
+  .btn{
+    display:inline-flex; align-items:center; gap:.4rem;
+    font-size:.78rem; font-weight:600; border-radius:.55rem;
+    padding:.42rem .7rem; border:1px solid var(--line);
+    background:var(--panel-2); color:#d7d3cc; cursor:pointer;
+    transition:background .12s, border-color .12s, color .12s, transform .08s;
+    white-space:nowrap;
+  }
+  .btn:hover{ background:var(--panel-3); color:#fff; }
+  .btn:active{ transform:translateY(1px); }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn svg{ width:1rem; height:1rem; }
+
+  .btn-teal{ border-color:rgba(94,200,192,.35); background:rgba(94,200,192,.12); color:var(--teal); }
+  .btn-teal:hover{ background:rgba(94,200,192,.2); color:#bff3ee; }
+  .btn-tan{ border-color:rgba(217,168,119,.35); background:rgba(217,168,119,.12); color:var(--tan); }
+  .btn-tan:hover{ background:rgba(217,168,119,.2); color:#f3d9bd; }
+  .btn-danger{ border-color:rgba(248,113,113,.3); background:rgba(248,113,113,.1); color:#f8a3a3; }
+  .btn-danger:hover{ background:rgba(248,113,113,.18); color:#ffc9c9; }
+
+  .play-btn{
+    width:3rem; height:3rem; border-radius:999px; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(140deg,#e3b487,#c08c56); color:#241605;
+    box-shadow:0 0 24px rgba(217,168,119,.35); border:none; cursor:pointer; transition:transform .1s, box-shadow .15s;
+  }
+  .play-btn:hover{ transform:scale(1.04); box-shadow:0 0 30px rgba(217,168,119,.5); }
+  .play-btn.playing{ background:linear-gradient(140deg,#f0c79a,#b98753); box-shadow:0 0 30px rgba(217,168,119,.6); color:#241605; }
+
+  input[type=range]{ accent-color:var(--teal); }
+  .range-tan{ accent-color:var(--tan); }
+
+  /* ---------- grid ---------- */
+  .grid-scroll::-webkit-scrollbar{ height:9px; }
+  .grid-scroll::-webkit-scrollbar-track{ background:var(--panel-2); border-radius:4px; }
+  .grid-scroll::-webkit-scrollbar-thumb{ background:#3d3d45; border-radius:4px; }
+  .grid-scroll::-webkit-scrollbar-thumb:hover{ background:#4d4d57; }
+
+  .grid-row{ display:flex; align-items:center; gap:1rem; }
+  .row-label{
+    width:7.4rem; flex:0 0 auto; display:flex; align-items:center;
+    justify-content:space-between; gap:.4rem; padding-right:.2rem;
+  }
+  @media (min-width:640px){ .row-label{ width:8.6rem; } }
+  .row-name{ font-size:.7rem; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#b9b5ae; }
+  .row-name.fxname{ color:var(--tan); opacity:.85; }
+  .steps{ display:flex; gap:var(--gap); }
+
+  .mute{
+    width:1.15rem; height:1.15rem; border-radius:.25rem; border:1px solid var(--line);
+    background:var(--panel-3); color:#7d7d86; font-size:.6rem; font-weight:800;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;
+  }
+  .mute.on{ background:rgba(248,113,113,.8); border-color:rgba(248,113,113,.9); color:#fff; }
+
+  .step-num{
+    width:var(--cell); text-align:center; font-family:'JetBrains Mono',monospace;
+    font-size:.6rem; color:#5f5f68; user-select:none;
+  }
+  .step-num.beat{ color:#9a9aa4; }
+
+  .cell{
+    width:var(--cell); height:var(--cell); border-radius:.42rem; position:relative; overflow:hidden;
+    background:var(--panel-2); border:1px solid #33333b; cursor:pointer;
+    transition:background .1s, box-shadow .12s, transform .06s; flex:0 0 auto;
+  }
+  .cell.beat{ background:#282830; }
+  .cell:hover{ background:#33333d; }
+  .cell:active{ transform:scale(.94); }
+  .cell:focus-visible{ outline:2px solid var(--teal); outline-offset:1px; }
+  .cell.you{ background:var(--tan); border-color:#eccca6; box-shadow:0 0 12px rgba(217,168,119,.45); }
+  .cell.ai{ background:var(--teal); border-color:#7fdcd4; box-shadow:0 0 12px rgba(94,200,192,.45); }
+  .cell.peer{ background:#9fe0da; border-color:#c6efeb; box-shadow:0 0 12px rgba(159,224,218,.4); }
+  .cell.fxrow.you{ background:var(--tan-dim); border-color:#a1794f; box-shadow:none; }
+  .cell.fxrow.ai{ background:var(--teal-dim); border-color:#4f9a94; box-shadow:none; }
+  .cell.fxrow.peer{ background:#4a8b86; border-color:#71b5af; box-shadow:none; }
+  .cell .vel{
+    position:absolute; left:0; bottom:0; width:100%; background:rgba(255,255,255,.34);
+    pointer-events:none; transition:height .15s ease-out;
+  }
+  .cell.flash{ animation:flash .35s ease-out; }
+  @keyframes flash{ 0%{ box-shadow:0 0 0 0 rgba(255,255,255,.7); } 100%{ box-shadow:0 0 0 8px rgba(255,255,255,0); } }
+
+  #playhead{
+    position:absolute; top:0; bottom:0; width:var(--cell); border-radius:.45rem;
+    background:rgba(255,255,255,.13); border-left:1px solid rgba(255,255,255,.28);
+    border-right:1px solid rgba(255,255,255,.28);
+    pointer-events:none; z-index:20; display:none;
+    transition:transform .05s linear, width .1s linear;
+  }
+
+  /* ---------- pattern buttons ---------- */
+  .pat-btn{
+    position:relative; padding:.4rem .9rem; border-radius:.55rem; font-size:.8rem; font-weight:700;
+    border:1px solid var(--line); background:var(--panel-2); color:#a7a7b0; cursor:pointer;
+    transition:all .12s;
+  }
+  .pat-btn:hover{ background:var(--panel-3); color:#fff; }
+  .pat-btn.active{ background:var(--tan); border-color:var(--tan); color:#241605; box-shadow:0 0 16px rgba(217,168,119,.3); }
+  .pat-btn .playdot{
+    position:absolute; top:-3px; right:-3px; width:8px; height:8px; border-radius:999px;
+    background:var(--teal); box-shadow:0 0 8px var(--teal); display:none;
+  }
+  .pat-btn.playing .playdot{ display:block; }
+
+  .toggle{
+    width:2.9rem; height:1.45rem; border-radius:999px; background:#3b3b44; position:relative;
+    border:1px solid var(--line); cursor:pointer; transition:background .2s; flex:0 0 auto;
+  }
+  .toggle .dot{
+    position:absolute; top:2px; left:2px; width:1.05rem; height:1.05rem; border-radius:999px;
+    background:#c9c9d1; transition:transform .2s, background .2s;
+  }
+  .toggle.on{ background:rgba(94,200,192,.35); border-color:rgba(94,200,192,.6); }
+  .toggle.on .dot{ transform:translateX(1.4rem); background:var(--teal); }
+  .toggle.tan.on{ background:rgba(217,168,119,.3); border-color:rgba(217,168,119,.55); }
+  .toggle.tan.on .dot{ background:var(--tan); }
+
+  /* ---------- log ---------- */
+  .log-entry{ border-left:3px solid var(--line); border-radius:.35rem; padding:.45rem .6rem; font-size:.82rem; line-height:1.35; }
+  .log-you{ border-color:var(--tan); background:rgba(217,168,119,.07); }
+  .log-ai{ border-color:var(--teal); background:rgba(94,200,192,.07); }
+  .log-system{ border-color:#4a4a54; background:rgba(255,255,255,.02); }
+  .log-who{ font-weight:700; font-size:.7rem; letter-spacing:.06em; text-transform:uppercase; }
+  .log-you .log-who{ color:var(--tan); }
+  .log-ai .log-who{ color:var(--teal); }
+  .log-system .log-who{ color:#7f7f89; }
+
+  .chip{
+    font-size:.7rem; padding:.25rem .55rem; border-radius:999px; border:1px solid var(--line);
+    background:var(--panel-2); color:#a5a5ae; cursor:pointer; transition:all .12s; white-space:nowrap;
+  }
+  .chip:hover{ border-color:rgba(217,168,119,.5); color:var(--tan); }
+
+  /* ---------- misc ---------- */
+  .dot-pulse{ display:inline-block; position:relative; width:24px; height:6px; }
+  .dot-pulse div{ position:absolute; top:0; width:6px; height:6px; border-radius:50%; background:var(--teal); animation-timing-function:cubic-bezier(0,1,1,0); }
+  .dot-pulse div:nth-child(1){ left:0; animation:dp1 .6s infinite; }
+  .dot-pulse div:nth-child(2){ left:0; animation:dp2 .6s infinite; }
+  .dot-pulse div:nth-child(3){ left:9px; animation:dp2 .6s infinite; }
+  .dot-pulse div:nth-child(4){ left:18px; animation:dp3 .6s infinite; }
+  @keyframes dp1{ 0%{transform:scale(0)} 100%{transform:scale(1)} }
+  @keyframes dp3{ 0%{transform:scale(1)} 100%{transform:scale(0)} }
+  @keyframes dp2{ 0%{transform:translate(0,0)} 100%{transform:translate(9px,0)} }
+
+  #ai-pill{
+    font-size:.68rem; letter-spacing:.05em; padding:.2rem .5rem; border-radius:999px;
+    border:1px solid var(--line); max-width:14rem; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap;
+  }
+  #ai-pill.ok{ color:var(--teal); border-color:rgba(94,200,192,.4); }
+  #ai-pill.warn{ color:#f3b3b3; border-color:rgba(248,113,113,.45); background:rgba(248,113,113,.08); }
+  #ai-pill.off{ color:#8d8d96; }
+
+  dialog{ background:transparent; border:none; padding:0; }
+  dialog::backdrop{ background:rgba(0,0,0,.72); backdrop-filter:blur(4px); }
+  .modal-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:1rem;
+    padding:1.6rem; width:min(30rem,92vw); box-shadow:0 30px 80px rgba(0,0,0,.6);
+  }
+  .field{
+    width:100%; background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    border-radius:.5rem; padding:.55rem .7rem; font-size:.85rem; outline:none; font-family:inherit;
+  }
+  .field:focus{ border-color:var(--teal); }
+
+  .fx-track{ background:rgba(217,168,119,.03); border-radius:.5rem; }
+  .chain-chip{
+    display:inline-flex; align-items:center; gap:.35rem; font-size:.7rem; padding:.25rem .45rem;
+    border-radius:.4rem; background:var(--panel-2); border:1px solid var(--line); color:#b9b5ae;
+  }
+  .chain-chip button{ background:none; border:none; color:#7f7f89; cursor:pointer; font-size:.8rem; padding:0 .1rem; line-height:1; }
+  .chain-chip button:hover{ color:#fff; }
+
+  /* ---------- jam session ---------- */
+  @keyframes peerflash{ 0%{ box-shadow:0 0 0 0 rgba(255,255,255,.85); } 100%{ box-shadow:0 0 0 10px rgba(255,255,255,0); } }
+  .cell.peerflash{ animation:peerflash .5s ease-out; }
+
+  #presence-chip{
+    display:none; align-items:center; gap:.4rem; font-size:.68rem; letter-spacing:.04em;
+    padding:.2rem .55rem; border-radius:999px; border:1px solid rgba(94,200,192,.4);
+    background:rgba(94,200,192,.1); color:var(--teal);
+  }
+  .presence-dot{
+    width:.4rem; height:.4rem; border-radius:999px; background:var(--teal);
+    box-shadow:0 0 8px var(--teal); display:inline-block; animation:pulseDot 2s infinite;
+  }
+  @keyframes pulseDot{ 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  .room-code{
+    font-family:'JetBrains Mono',monospace; font-size:1.9rem; letter-spacing:.28em;
+    color:var(--teal); text-shadow:0 0 24px rgba(94,200,192,.25); padding-left:.28em;
+  }
+  .peer-row{
+    display:flex; align-items:center; gap:.5rem; font-size:.8rem; color:#cfcac2;
+    padding:.3rem .55rem; border-radius:.45rem; background:var(--panel-2); border:1px solid var(--line);
+  }
+  .peer-row.you{ border-color:rgba(94,200,192,.35); color:var(--teal); }
+  #session-status{ font-size:.72rem; color:#f3b3b3; min-height:1rem; }
+</style>
+</head>
+<body class="min-h-screen p-4 sm:p-7">
+
+<!-- ============ HEADER ============ -->
+<header class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-5 pb-5 mb-5" style="border-bottom:1px solid var(--line)">
+  <div class="flex items-center gap-4">
+    <svg viewBox="0 0 120 120" class="w-14 h-14 shrink-0" aria-hidden="true">
+      <defs>
+        <clipPath id="logoTop"><rect x="0" y="0" width="120" height="57"/></clipPath>
+        <clipPath id="logoBottom"><rect x="0" y="63" width="120" height="57"/></clipPath>
+      </defs>
+      <g transform="rotate(-16 60 60)">
+        <circle cx="60" cy="60" r="47.75" fill="none" stroke="#5ec8c0" stroke-width="11" stroke-dasharray="9.5 5.5" clip-path="url(#logoTop)"/>
+        <circle cx="60" cy="60" r="47.75" fill="none" stroke="#d9a877" stroke-width="11" stroke-dasharray="9.5 5.5" clip-path="url(#logoBottom)"/>
+      </g>
+      <circle cx="60" cy="60" r="33.5" fill="none" stroke="#3a3a42" stroke-width="1.2"/>
+      <path d="M43 66 l4.2 -9.5 l3.4 15 l3.6 -21 l4 23 l3.6 -14 l3.2 6.5 h5"
+            fill="none" stroke="#f1ede6" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="85.5" cy="36.5" r="4.2" fill="#5ec8c0"/>
+      <circle cx="34.5" cy="83.5" r="4.2" fill="#d9a877"/>
+    </svg>
+    <div>
+      <h1 class="wordmark">illg<span class="o">o</span>rhythm</h1>
+      <p class="tagline">turn-based AI drum machine · you drop a hit, I drop the next</p>
+    </div>
+  </div>
+
+  <div class="flex flex-wrap items-end gap-5">
+    <button id="btn-play" class="play-btn" title="Play / stop (Space)" aria-label="Play">
+      <svg id="icon-play" class="w-5 h-5 ml-0.5" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4l12 6-12 6z"/></svg>
+      <svg id="icon-stop" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4h12v12H4z"/></svg>
+    </button>
+
+    <div class="flex flex-col w-32">
+      <label class="ctl-label mb-1 flex justify-between"><span>Tempo</span><span id="bpm-display" class="font-mono">120</span></label>
+      <input type="range" id="bpm-slider" min="60" max="200" value="120" class="w-full">
+    </div>
+
+    <div class="flex flex-col w-28">
+      <label class="ctl-label mb-1 flex justify-between"><span>Swing</span><span id="swing-display" class="font-mono">0%</span></label>
+      <input type="range" id="swing-slider" min="0" max="100" value="0" class="w-full">
+    </div>
+
+    <div class="flex flex-col w-28">
+      <label class="ctl-label mb-1 flex justify-between"><span>Humanize</span><span id="humanize-display" class="font-mono">0%</span></label>
+      <input type="range" id="humanize-slider" min="0" max="100" value="0" class="w-full range-tan">
+    </div>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto">
+
+  <!-- ============ TOOLBAR ============ -->
+  <div class="panel p-3 mb-3 flex flex-wrap items-center gap-3">
+    <div class="flex gap-1.5">
+      <button id="btn-pat-A" class="pat-btn active" data-pat="A">A<span class="playdot"></span></button>
+      <button id="btn-pat-B" class="pat-btn" data-pat="B">B<span class="playdot"></span></button>
+      <button id="btn-pat-Fill" class="pat-btn" data-pat="Fill">Fill<span class="playdot"></span></button>
+    </div>
+
+    <div class="flex items-center gap-2 pl-2" style="border-left:1px solid var(--line)">
+      <span class="ctl-label">Chain</span>
+      <button id="btn-chain" class="toggle" role="switch" aria-checked="false" title="Chain mode (play a sequence of patterns)">
+        <span class="dot"></span>
+      </button>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <select id="kit-select" class="select" aria-label="Drum kit">
+        <option value="Modern Synth">Modern Synth</option>
+        <option value="808 Style">808 Style</option>
+        <option value="Acoustic / Lo-Fi">Acoustic / Lo-Fi</option>
+      </select>
+      <select id="genre-select" class="select" aria-label="Genre">
+        <option>Hip Hop</option><option>House</option><option>Techno</option><option>Rock</option>
+        <option>Lo-Fi</option><option>Trap</option><option>Drum &amp; Bass</option><option>Reggaeton</option>
+        <option>R&amp;B</option><option>Synthwave</option><option>Afrobeats</option><option>Funk</option><option>Pop</option>
+      </select>
+      <select id="steps-select" class="select" aria-label="Time signature">
+        <option value="16">4/4 · 16</option>
+        <option value="12">3/4 · 12</option>
+      </select>
+    </div>
+
+    <div class="ml-auto flex flex-wrap items-center gap-1.5">
+      <button id="btn-undo" class="btn" title="Undo (⌘Z)" aria-label="Undo">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14L4 9l5-5"/><path stroke-linecap="round" stroke-linejoin="round" d="M4 9h9a7 7 0 010 14h-3"/></svg>
+      </button>
+      <button id="btn-redo" class="btn" title="Redo (⇧⌘Z)" aria-label="Redo">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 14l5-5-5-5"/><path stroke-linecap="round" stroke-linejoin="round" d="M20 9h-9a7 7 0 000 14h3"/></svg>
+      </button>
+      <button id="btn-fx" class="btn" title="Master FX">FX</button>
+      <button id="btn-jam" class="btn btn-teal" title="Jam with a friend in real time">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path stroke-linecap="round" d="M3 20a6 6 0 0112 0"/><path stroke-linecap="round" d="M16 5a3 3 0 010 6"/><path stroke-linecap="round" d="M18 20a6 6 0 00-3-5.2"/></svg>
+        Jam
+      </button>
+      <button id="btn-share" class="btn">Share</button>
+      <button id="btn-export-midi" class="btn btn-teal">Export MIDI</button>
+      <button id="btn-inspire" class="btn btn-teal">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        Inspire
+      </button>
+      <button id="btn-clear" class="btn btn-danger">Clear</button>
+      <button id="btn-settings" class="btn" title="Settings">⚙</button>
+    </div>
+  </div>
+
+  <!-- ============ CHAIN STRIP ============ -->
+  <div id="chain-strip" class="panel px-3 py-2 mb-3 flex-wrap items-center gap-2" style="display:none">
+    <span class="ctl-label">Arrangement</span>
+    <div id="chain-chips" class="flex flex-wrap items-center gap-1.5"></div>
+    <div class="flex items-center gap-1 ml-auto">
+      <span class="ctl-label">Append</span>
+      <button class="chip" data-append="A">A</button>
+      <button class="chip" data-append="B">B</button>
+      <button class="chip" data-append="Fill">Fill</button>
+    </div>
+  </div>
+
+  <!-- ============ STATUS ============ -->
+  <div class="flex flex-wrap justify-between items-center gap-2 mb-2 h-7 px-1">
+    <div id="turn-indicator" class="text-sm font-semibold text-[color:var(--tan)]">Your turn — click a cell to place a hit.</div>
+    <div class="flex items-center gap-3">
+      <div id="ai-loading" class="hidden text-sm flex items-center gap-2" style="color:var(--teal)">
+        AI is thinking <div class="dot-pulse"><div></div><div></div><div></div><div></div></div>
+      </div>
+      <span id="presence-chip"><span class="presence-dot"></span><span id="presence-count">1 in jam</span></span>
+      <span id="ai-pill" class="off">AI off</span>
+    </div>
+  </div>
+
+  <!-- ============ GRID ============ -->
+  <div class="panel p-3 sm:p-4">
+    <div id="grid-scroll" class="overflow-x-auto grid-scroll pb-1">
+      <div id="grid-inner" class="relative min-w-max">
+        <div id="playhead"></div>
+        <div id="rows"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ FX DRAWER ============ -->
+  <div id="fx-drawer" class="panel p-4 mt-3 hidden">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <h3 class="ctl-label">Master FX</h3>
+      <span class="text-[.65rem]" style="color:#6f6f79">FX rows in the grid are per-step send levels</span>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div>
+        <label class="ctl-label flex justify-between mb-1"><span>Reverb decay</span><span id="rev-display" class="font-mono">2.5s</span></label>
+        <input type="range" id="rev-decay" min="2" max="80" value="25" class="w-full">
+      </div>
+      <div>
+        <label class="ctl-label flex justify-between mb-1"><span>Delay feedback</span><span id="fb-display" class="font-mono">35%</span></label>
+        <input type="range" id="delay-fb" min="0" max="90" value="35" class="w-full">
+      </div>
+      <div>
+        <label class="ctl-label mb-1 block">Delay time</label>
+        <select id="delay-time" class="select w-full">
+          <option value="16n">1/16</option>
+          <option value="8n" selected>1/8</option>
+          <option value="8n.">1/8 dotted</option>
+          <option value="4n.">1/4 dotted</option>
+        </select>
+      </div>
+      <div>
+        <label class="ctl-label flex justify-between mb-1"><span>Drive</span><span id="drive-display" class="font-mono">0%</span></label>
+        <input type="range" id="drive" min="0" max="100" value="0" class="w-full range-tan">
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PROMPT + LOG ============ -->
+  <div class="panel mt-3 p-4">
+    <div class="flex items-center justify-between gap-2 mb-3">
+      <h3 class="ctl-label">Collaboration log</h3>
+      <div class="flex items-center gap-2">
+        <span class="ctl-label">AI</span>
+        <button id="btn-ai-toggle" class="toggle on" role="switch" aria-checked="true" title="Toggle AI turns">
+          <span class="dot"></span>
+        </button>
+      </div>
+    </div>
+
+    <div id="collab-log" class="flex flex-col gap-1.5 h-44 overflow-y-auto pr-2 grid-scroll text-sm" aria-live="polite">
+      <div class="text-[color:var(--muted)] italic text-sm">Waiting for your first move…</div>
+    </div>
+
+    <form id="steer-form" class="mt-3 flex items-center gap-2">
+      <input id="steer-input" class="field flex-1" placeholder="Steer the AI — e.g. &quot;add a syncopated ghost snare before the downbeat&quot;" autocomplete="off">
+      <button type="submit" class="btn btn-teal">Send</button>
+    </form>
+    <div class="mt-2 flex flex-wrap gap-1.5">
+      <button class="chip" data-steer="Make it punchier without crowding the low end.">Punchier</button>
+      <button class="chip" data-steer="Add syncopated ghost snares between the backbeats.">Ghost snares</button>
+      <button class="chip" data-steer="Strip it back — remove anything that is not carrying the groove.">Strip it back</button>
+      <button class="chip" data-steer="Build a two-bar fill feel with toms in the second half.">Tom fill</button>
+      <button class="chip" data-steer="__coach">Critique my pattern</button>
+    </div>
+  </div>
+</main>
+
+<!-- ============ MODALS ============ -->
+<dialog id="start-modal">
+  <div class="modal-card text-center">
+    <div class="flex justify-center mb-4">
+      <svg viewBox="0 0 120 120" class="w-16 h-16" aria-hidden="true">
+        <g transform="rotate(-16 60 60)">
+          <circle cx="60" cy="60" r="47.75" fill="none" stroke="#5ec8c0" stroke-width="11" stroke-dasharray="9.5 5.5" clip-path="url(#logoTop)"/>
+          <circle cx="60" cy="60" r="47.75" fill="none" stroke="#d9a877" stroke-width="11" stroke-dasharray="9.5 5.5" clip-path="url(#logoBottom)"/>
+        </g>
+        <path d="M43 66 l4.2 -9.5 l3.4 15 l3.6 -21 l4 23 l3.6 -14 l3.2 6.5 h5" fill="none" stroke="#f1ede6" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h2 class="text-xl font-extrabold mb-2">Start the engine</h2>
+    <p class="text-sm mb-5" style="color:var(--muted)">Browsers only allow audio after a click. Your pattern is saved on this device, so nothing is lost.</p>
+    <button id="btn-start-audio" class="btn btn-teal px-5 py-2.5 text-sm mx-auto">Start making beats</button>
+    <button id="btn-skip-audio" class="block mx-auto mt-3 text-xs underline" style="color:#6f6f79">continue without sound</button>
+  </div>
+</dialog>
+
+<dialog id="settings-modal">
+  <div class="modal-card">
+    <h2 class="text-lg font-extrabold mb-1">AI settings</h2>
+    <p class="text-xs mb-4" style="color:var(--muted)">Your key is stored only in this browser and sent directly to Google as a request header. For a public deployment, proxy the call through a serverless function so the key never reaches the client.</p>
+
+    <label class="ctl-label block mb-1">Gemini API key</label>
+    <input id="key-input" type="password" class="field mb-3" placeholder="AIza…" autocomplete="off" spellcheck="false">
+
+    <label class="ctl-label block mb-1">Model</label>
+    <input id="model-input" class="field mb-4" placeholder="gemini-2.5-flash" spellcheck="false">
+
+    <div class="flex items-center justify-between gap-2">
+      <button id="btn-reset-all" class="btn btn-danger">Reset everything</button>
+      <div class="flex gap-2">
+        <button id="btn-close-settings" class="btn">Cancel</button>
+        <button id="btn-save-settings" class="btn btn-teal">Save</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<!-- Jam session -->
+<dialog id="session-modal">
+  <div class="modal-card">
+    <h2 class="text-lg font-extrabold mb-1">Jam session</h2>
+    <p class="text-xs mb-4" style="color:var(--muted)">
+      Two browsers, one grid. Changes, transport and the AI are shared live; mutes stay personal.
+    </p>
+
+    <div id="session-idle">
+      <button id="btn-host" class="btn btn-teal w-full justify-center py-2.5 mb-4">Start a session</button>
+      <div class="flex items-center gap-2 mb-4">
+        <div class="flex-1" style="height:1px;background:var(--line)"></div>
+        <span class="ctl-label">or join one</span>
+        <div class="flex-1" style="height:1px;background:var(--line)"></div>
+      </div>
+      <div class="flex gap-2">
+        <input id="join-code" class="field flex-1 uppercase" placeholder="ROOM CODE" maxlength="5" autocomplete="off" spellcheck="false">
+        <button id="btn-join" class="btn">Join</button>
+      </div>
+    </div>
+
+    <div id="session-live" class="hidden">
+      <div class="text-center mb-4">
+        <div class="ctl-label mb-1">Room code</div>
+        <div id="room-code" class="room-code">-----</div>
+      </div>
+
+      <button id="btn-copy-invite" class="btn btn-teal w-full justify-center mb-2">Copy invite link</button>
+      <p id="file-hint" class="text-[.65rem] mb-2 hidden" style="color:var(--muted)">
+        You are running this from a local file, so a link will not open on their machine. Send them the code above — they open their copy of illgorhythm, hit Jam, and join.
+      </p>
+
+      <div class="mb-4">
+        <div class="ctl-label mb-2">In the room</div>
+        <div id="peer-list" class="flex flex-col gap-1"></div>
+      </div>
+
+      <button id="btn-leave" class="btn btn-danger w-full justify-center">Leave session</button>
+    </div>
+
+    <div id="session-status" class="mt-3"></div>
+
+    <div class="mt-3 flex justify-end">
+      <button id="btn-close-session" class="btn">Close</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+/* =========================================================================
+   illgorhythm — turn-based AI drum machine
+   Sections: helpers · model · audio · sequencer · render · interaction ·
+             history · share · AI · midi · boot
+   ========================================================================= */
+
+/* ---------------------------- helpers ---------------------------------- */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function readJSON(key) {
+  try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
+}
+function writeJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* private mode */ }
+}
+
+/* ---------------------------- configuration ---------------------------- */
+const STORE_KEY = 'illgorhythm.doc.v3';
+const SETTINGS_KEY = 'illgorhythm.settings.v1';
+
+/** Master sequence length: a common multiple of every supported pattern length,
+ *  so changing time signature never requires rebuilding the running sequence. */
+const MASTER_STEPS = 192;
+
+const DEFAULT_MODEL = 'gemini-2.5-flash';
+const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+const INSTRUMENTS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal', 'FX Reverb', 'FX Delay'];
+const DRUMS = INSTRUMENTS.filter(i => !i.startsWith('FX'));
+const FX_TRACKS = ['FX Reverb', 'FX Delay'];
+const PATTERN_IDS = ['A', 'B', 'Fill'];
+
+const settings = Object.assign(
+  { apiKey: '', model: DEFAULT_MODEL, aiEnabled: true },
+  readJSON(SETTINGS_KEY) || {}
+);
+
+/* ------------------------------- model --------------------------------- */
+function blankCell() { return { active: false, owner: null, velocity: 1 }; }
+
+function newPattern(n) {
+  const p = {};
+  INSTRUMENTS.forEach(inst => {
+    p[inst] = Array.from({ length: n }, blankCell);
+  });
+  return p;
+}
+
+function newDoc() {
+  return {
+    v: 3,
+    numSteps: 16,
+    bpm: 120,
+    swing: 0,
+    humanize: 0,
+    genre: 'Hip Hop',
+    kit: 'Modern Synth',
+    chain: [
+      { pattern: 'A', repeats: 2 },
+      { pattern: 'B', repeats: 1 },
+      { pattern: 'A', repeats: 1 },
+      { pattern: 'Fill', repeats: 1 }
+    ],
+    fx: { revDecay: 2.5, delayFb: 0.35, delayTime: '8n', drive: 0 },
+    patterns: { A: newPattern(16), B: newPattern(16), Fill: newPattern(16) }
+  };
+}
+
+let doc = newDoc();
+
+/** Coerce anything loaded from storage or a share link into a valid document. */
+function ensureDocShape(input) {
+  const base = newDoc();
+  if (!input || typeof input !== 'object') return base;
+
+  const d = Object.assign({}, base, input);
+  d.numSteps = [12, 16].includes(input.numSteps) ? input.numSteps : 16;
+  d.bpm = clamp(Number(input.bpm) || 120, 60, 200);
+  d.swing = clamp(Number(input.swing) || 0, 0, 100);
+  d.humanize = clamp(Number(input.humanize) || 0, 0, 100);
+  d.genre = typeof input.genre === 'string' ? input.genre : base.genre;
+  d.kit = ['Modern Synth', '808 Style', 'Acoustic / Lo-Fi'].includes(input.kit) ? input.kit : base.kit;
+
+  const fxIn = input.fx || {};
+  d.fx = {
+    revDecay: clamp(Number(fxIn.revDecay) || 2.5, 0.2, 8),
+    delayFb: clamp(Number(fxIn.delayFb) || 0.35, 0, 0.9),
+    delayTime: ['16n', '8n', '8n.', '4n.'].includes(fxIn.delayTime) ? fxIn.delayTime : '8n',
+    drive: clamp(Number(fxIn.drive) || 0, 0, 100)
+  };
+
+  d.patterns = {};
+  PATTERN_IDS.forEach(pat => {
+    const src = (input.patterns && input.patterns[pat]) || {};
+    const out = {};
+    INSTRUMENTS.forEach(inst => {
+      const arr = Array.isArray(src[inst]) ? src[inst] : [];
+      out[inst] = Array.from({ length: d.numSteps }, (_, i) => {
+        const c = arr[i];
+        if (!c || !c.active) return blankCell();
+        return {
+          active: true,
+          owner: c.owner === 'ai' ? 'ai' : 'you',
+          velocity: clamp(Number(c.velocity) || 1, 0.05, 1)
+        };
+      });
+    });
+    d.patterns[pat] = out;
+  });
+
+  d.chain = Array.isArray(input.chain) && input.chain.length
+    ? input.chain
+        .filter(e => e && PATTERN_IDS.includes(e.pattern))
+        .slice(0, 16)
+        .map(e => ({ pattern: e.pattern, repeats: clamp(parseInt(e.repeats, 10) || 1, 1, 8) }))
+    : base.chain;
+  if (!d.chain.length) d.chain = base.chain;
+
+  return d;
+}
+
+/* ------------------------------ runtime UI state ----------------------- */
+const ui = {
+  editPatternId: 'A',
+  playbackPatternId: 'A',
+  chainMode: false,
+  chainIndex: 0,
+  chainRepeat: 0,
+  isPlaying: false,
+  thinking: false,
+  audioReady: false,
+  muted: new Set()
+};
+ui.aiEnabled = settings.aiEnabled !== false;
+
+/* --------------------------- synth definitions ------------------------- */
+const DRUM_KITS = {
+  'Modern Synth': {
+    'Kick': () => new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 5, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4 } }),
+    'Snare': () => new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.2 } }),
+    'Rim': () => new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, oscillator: { type: 'square' }, envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 } }),
+    'Cl Hat': () => { const s = new Tone.MetalSynth({ frequency: 250, envelope: { attack: 0.001, decay: 0.1, release: 0.01 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5 }); s.volume.value = -8; return s; },
+    'Op Hat': () => { const s = new Tone.MetalSynth({ frequency: 250, envelope: { attack: 0.001, decay: 0.4, release: 0.1 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5 }); s.volume.value = -8; return s; },
+    'Tom': () => new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 3, oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.5, sustain: 0, release: 1 } }),
+    'Cymbal': () => { const s = new Tone.MetalSynth({ frequency: 200, envelope: { attack: 0.001, decay: 1.4, release: 0.2 }, harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5 }); s.volume.value = -10; return s; }
+  },
+  '808 Style': {
+    'Kick': () => new Tone.MembraneSynth({ pitchDecay: 0.005, octaves: 2, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 1.2, sustain: 0.1, release: 2 } }),
+    'Snare': () => new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 } }),
+    'Rim': () => new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 2, oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.05 } }),
+    'Cl Hat': () => { const s = new Tone.MetalSynth({ frequency: 400, envelope: { attack: 0.001, decay: 0.05, release: 0.01 }, harmonicity: 2.1, modulationIndex: 40, resonance: 8000, octaves: 1 }); s.volume.value = -10; return s; },
+    'Op Hat': () => { const s = new Tone.MetalSynth({ frequency: 400, envelope: { attack: 0.001, decay: 0.4, release: 0.1 }, harmonicity: 2.1, modulationIndex: 40, resonance: 8000, octaves: 1 }); s.volume.value = -10; return s; },
+    'Tom': () => new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 1.5, oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.8, sustain: 0, release: 1 } }),
+    'Cymbal': () => { const s = new Tone.MetalSynth({ frequency: 300, envelope: { attack: 0.001, decay: 2.0, release: 0.5 }, harmonicity: 3.1, modulationIndex: 50, resonance: 6000, octaves: 2 }); s.volume.value = -12; return s; }
+  },
+  'Acoustic / Lo-Fi': {
+    'Kick': () => new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 4, oscillator: { type: 'square' }, envelope: { attack: 0.005, decay: 0.2, sustain: 0, release: 0.4 } }),
+    'Snare': () => { const s = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.2 } }); s.volume.value = -2; return s; },
+    'Rim': () => new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 4, oscillator: { type: 'sawtooth' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.1 } }),
+    'Cl Hat': () => { const s = new Tone.MetalSynth({ frequency: 150, envelope: { attack: 0.005, decay: 0.08, release: 0.01 }, harmonicity: 1.5, modulationIndex: 10, resonance: 1000, octaves: 0.5 }); s.volume.value = -6; return s; },
+    'Op Hat': () => { const s = new Tone.MetalSynth({ frequency: 150, envelope: { attack: 0.005, decay: 0.3, release: 0.1 }, harmonicity: 1.5, modulationIndex: 10, resonance: 1000, octaves: 0.5 }); s.volume.value = -6; return s; },
+    'Tom': () => new Tone.MembraneSynth({ pitchDecay: 0.2, octaves: 5, oscillator: { type: 'triangle' }, envelope: { attack: 0.01, decay: 0.3, sustain: 0, release: 0.5 } }),
+    'Cymbal': () => { const s = new Tone.MetalSynth({ frequency: 150, envelope: { attack: 0.005, decay: 1.2, release: 0.2 }, harmonicity: 1.5, modulationIndex: 20, resonance: 1000, octaves: 1 }); s.volume.value = -8; return s; }
+  }
+};
+
+/* How each instrument is articulated. Same mapping for every kit. */
+const ARTICULATION = {
+  'Kick':   { type: 'membrane', note: 'C1', dur: '8n' },
+  'Snare':  { type: 'noise',    dur: '16n' },
+  'Rim':    { type: 'membrane', note: 'C4', dur: '16n' },
+  'Cl Hat': { type: 'metal',    dur: '32n' },
+  'Op Hat': { type: 'metal',    dur: '8n' },
+  'Tom':    { type: 'membrane', note: 'G2', dur: '8n' },
+  'Cymbal': { type: 'metal',    dur: '2n' }
+};
+
+/* ------------------------------- audio --------------------------------- */
+const synths = {};
+let bus, comp, driveNode, reverb, delay, reverbSend, delaySend;
+let toneSequence = null;
+
+async function setupAudio() {
+  comp = new Tone.Compressor({ threshold: -18, ratio: 3, attack: 0.004, release: 0.18 }).toDestination();
+  driveNode = new Tone.Distortion({ distortion: 0.4, oversample: '2x', wet: doc.fx.drive / 100 });
+  driveNode.connect(comp);
+
+  bus = new Tone.Gain(1);
+  bus.connect(driveNode);
+
+  reverbSend = new Tone.Gain(0);
+  delaySend = new Tone.Gain(0);
+  reverb = new Tone.Reverb({ decay: doc.fx.revDecay, preDelay: 0.02, wet: 1 });
+  delay = new Tone.FeedbackDelay({ delayTime: doc.fx.delayTime, feedback: doc.fx.delayFb, wet: 1 });
+
+  bus.connect(reverbSend); reverbSend.connect(reverb); reverb.connect(comp);
+  bus.connect(delaySend);  delaySend.connect(delay);   delay.connect(comp);
+
+  await reverb.generate();
+  lastRevDecay = doc.fx.revDecay;
+  loadDrumKit(doc.kit);
+  initSequence();
+  Tone.Transport.bpm.value = doc.bpm;
+  applySwing();
+}
+
+function loadDrumKit(name) {
+  const kit = DRUM_KITS[name];
+  if (!kit) return;
+  DRUMS.forEach(inst => {
+    if (synths[inst]) synths[inst].dispose();
+    synths[inst] = kit[inst]().connect(bus);
+  });
+}
+
+/** Single choke point for every drum hit — sequencer previews and AI previews. */
+function triggerInstrument(inst, time, velocity) {
+  const synth = synths[inst];
+  if (!synth) return;
+  const art = ARTICULATION[inst];
+  if (!art) return;
+  if (art.type === 'membrane') synth.triggerAttackRelease(art.note, art.dur, time, velocity);
+  else synth.triggerAttackRelease(art.dur, time, velocity);
+}
+
+function jitter(time, amount) {
+  const base = typeof time === 'number' ? time : Tone.Time(time).toSeconds();
+  if (!amount) return base;
+  return base + (Math.random() * 2 - 1) * amount * 0.012;
+}
+
+/** Per-step FX send: set the send level, then decay it over the effect's tail.
+ *  Nothing resets the send on empty steps, so the effect is audible for its full tail. */
+function fireSend(inst, cell, time) {
+  const send = inst === 'FX Reverb' ? reverbSend : delaySend;
+  if (!send) return;
+  const tail = inst === 'FX Reverb'
+    ? clamp(doc.fx.revDecay, 0.15, 8)
+    : clamp(Tone.Time(doc.fx.delayTime).toSeconds() * 3, 0.2, 4);
+  const g = send.gain;
+  g.cancelScheduledValues(time);
+  g.setValueAtTime(clamp(cell.velocity, 0.02, 1), time);
+  g.exponentialRampToValueAtTime(0.0001, time + tail);
+}
+
+function playPreview(inst, velocity) {
+  if (!ui.audioReady || Tone.context.state !== 'running') return;
+  const t = Tone.now() + 0.02;
+  if (FX_TRACKS.includes(inst)) {
+    fireSend(inst, { velocity }, t);
+    triggerInstrument('Kick', t, 0.55);   // something for the send to chew on
+  } else {
+    triggerInstrument(inst, t, velocity);
+  }
+}
+
+/* ----------------------------- sequencer ------------------------------- */
+function initSequence() {
+  if (toneSequence) toneSequence.dispose();
+
+  const steps = Array.from({ length: MASTER_STEPS }, (_, i) => i);
+
+  toneSequence = new Tone.Sequence((time, master) => {
+    const n = doc.numSteps;
+    const step = master % n;
+    const pat = doc.patterns[ui.playbackPatternId] || doc.patterns.A;
+    const hum = doc.humanize / 100;
+
+    if (step === 0 && !netGuest()) advanceChain(time);
+
+    Tone.Draw.schedule(() => updatePlayhead(step), time);
+
+    FX_TRACKS.forEach(fx => {
+      if (ui.muted.has(fx)) return;
+      const cell = pat[fx] && pat[fx][step];
+      if (cell && cell.active) fireSend(fx, cell, jitter(time, hum * 0.4));
+    });
+
+    DRUMS.forEach(inst => {
+      if (ui.muted.has(inst)) return;
+      const cell = pat[inst] && pat[inst][step];
+      if (cell && cell.active) triggerInstrument(inst, jitter(time, hum), cell.velocity);
+    });
+  }, steps, '16n');
+
+  toneSequence.start(0);
+}
+
+function advanceChain(time) {
+  if (!ui.chainMode) {
+    ui.playbackPatternId = ui.editPatternId;
+    return;
+  }
+  const chain = doc.chain;
+  if (!chain.length) return;
+
+  if (ui.chainIndex >= chain.length) ui.chainIndex = 0;
+  if (ui.chainRepeat >= chain[ui.chainIndex].repeats) {
+    ui.chainRepeat = 0;
+    ui.chainIndex = (ui.chainIndex + 1) % chain.length;
+  }
+  const next = chain[ui.chainIndex].pattern;
+  const changed = next !== ui.playbackPatternId;
+  ui.playbackPatternId = next;
+  ui.chainRepeat++;
+
+  Tone.Draw.schedule(updatePatternButtonsUI, time);
+  if (changed && netHost()) broadcast({ t: 'pattern', pat: next });
+}
+
+function applySwing() {
+  Tone.Transport.swing = doc.swing / 100;
+  Tone.Transport.swingSubdivision = '16n';
+}
+
+/* ------------------------------ rendering ------------------------------ */
+function fmtVel(v) { return String(Math.round(v * 10) / 10); }
+
+function renderGrid() {
+  const rows = $('#rows');
+  const pat = doc.patterns[ui.editPatternId];
+  const frag = document.createDocumentFragment();
+
+  // step numbers
+  const head = document.createElement('div');
+  head.className = 'grid-row mb-1.5';
+  const headLabel = document.createElement('div');
+  headLabel.className = 'row-label';
+  head.appendChild(headLabel);
+  const headSteps = document.createElement('div');
+  headSteps.className = 'steps';
+  for (let i = 0; i < doc.numSteps; i++) {
+    const num = document.createElement('div');
+    num.className = 'step-num' + (i % 4 === 0 ? ' beat' : '');
+    num.textContent = i + 1;
+    headSteps.appendChild(num);
+  }
+  head.appendChild(headSteps);
+  frag.appendChild(head);
+
+  INSTRUMENTS.forEach(inst => {
+    const isFx = FX_TRACKS.includes(inst);
+
+    if (inst === 'FX Reverb') {
+      const rule = document.createElement('div');
+      rule.className = 'my-1';
+      rule.style.borderTop = '1px dashed var(--line)';
+      frag.appendChild(rule);
+    }
+
+    const row = document.createElement('div');
+    row.className = 'grid-row py-0.5' + (isFx ? ' fx-track' : '');
+
+    const labelBox = document.createElement('div');
+    labelBox.className = 'row-label';
+
+    const name = document.createElement('span');
+    name.className = 'row-name' + (isFx ? ' fxname' : '');
+    name.textContent = inst;
+
+    const mute = document.createElement('button');
+    const muted = ui.muted.has(inst);
+    mute.className = 'mute' + (muted ? ' on' : '');
+    mute.textContent = 'M';
+    mute.title = (muted ? 'Unmute ' : 'Mute ') + inst;
+    mute.setAttribute('aria-label', mute.title);
+    mute.addEventListener('click', e => {
+      e.stopPropagation();
+      if (muted) ui.muted.delete(inst); else ui.muted.add(inst);
+      renderGrid();
+    });
+
+    labelBox.append(name, mute);
+    row.appendChild(labelBox);
+
+    const stepsBox = document.createElement('div');
+    stepsBox.className = 'steps';
+
+    for (let i = 0; i < doc.numSteps; i++) {
+      const cell = pat[inst][i];
+      const el = document.createElement('div');
+      el.className = 'cell' + (i % 4 === 0 ? ' beat' : '') + (isFx ? ' fxrow' : '');
+      if (cell.active) el.classList.add(cell.owner === 'ai' ? 'ai' : cell.owner === 'peer' ? 'peer' : 'you');
+      el.dataset.inst = inst;
+      el.dataset.step = i;
+      el.tabIndex = 0;
+      el.setAttribute('role', 'button');
+      el.setAttribute('aria-label',
+        `${inst} step ${i + 1}, ${cell.active ? 'active at velocity ' + fmtVel(cell.velocity) : 'empty'}`);
+
+      if (cell.active) {
+        const bar = document.createElement('div');
+        bar.className = 'vel';
+        bar.style.height = (cell.velocity * 100) + '%';
+        el.appendChild(bar);
+
+        if (cell.owner === 'ai') {
+          const dot = document.createElement('div');
+          dot.style.cssText = 'position:absolute;top:3px;right:3px;width:4px;height:4px;border-radius:999px;background:rgba(0,0,0,.35);pointer-events:none';
+          el.appendChild(dot);
+        }
+      }
+
+      el.addEventListener('click', e => handleCellClick(inst, i, e.shiftKey));
+      el.addEventListener('contextmenu', e => { e.preventDefault(); handleCellClick(inst, i, true); });
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); handleCellClick(inst, i, e.shiftKey); }
+      });
+
+      stepsBox.appendChild(el);
+    }
+
+    row.appendChild(stepsBox);
+    frag.appendChild(row);
+  });
+
+  rows.replaceChildren(frag);
+}
+
+function updatePlayhead(step) {
+  const head = $('#playhead');
+  if (!ui.isPlaying) { head.style.display = 'none'; return; }
+
+  const first = $(`.cell[data-step="${step}"]`);
+  if (!first) return;
+
+  head.style.display = 'block';
+  head.style.transform = `translateX(${first.offsetLeft}px)`;
+  head.style.width = first.offsetWidth + 'px';
+}
+
+function updatePatternButtonsUI() {
+  $$('.pat-btn').forEach(btn => {
+    const pat = btn.dataset.pat;
+    btn.classList.toggle('active', pat === ui.editPatternId);
+    btn.classList.toggle('playing', ui.chainMode && ui.isPlaying && pat === ui.playbackPatternId);
+  });
+}
+
+function renderChainStrip() {
+  const box = $('#chain-chips');
+  box.replaceChildren();
+  doc.chain.forEach((entry, idx) => {
+    const chip = document.createElement('span');
+    chip.className = 'chain-chip';
+
+    const label = document.createElement('button');
+    label.textContent = `${entry.pattern} ×${entry.repeats}`;
+    label.style.color = entry.pattern === ui.editPatternId ? 'var(--tan)' : 'inherit';
+    label.title = 'Click to cycle repeats';
+    label.addEventListener('click', () => {
+      entry.repeats = entry.repeats >= 4 ? 1 : entry.repeats * 2;
+      commit('Chain repeat change');
+      renderChainStrip();
+      logAction('you', `Chain: ${entry.pattern} repeats ×${entry.repeats}`);
+    });
+
+    const del = document.createElement('button');
+    del.textContent = '×';
+    del.title = 'Remove from arrangement';
+    del.setAttribute('aria-label', 'Remove ' + entry.pattern + ' from arrangement');
+    del.addEventListener('click', () => {
+      doc.chain.splice(idx, 1);
+      if (!doc.chain.length) doc.chain.push({ pattern: ui.editPatternId, repeats: 1 });
+      commit('Chain edit');
+      renderChainStrip();
+      logAction('you', 'Arrangement updated.');
+    });
+
+    chip.append(label, del);
+    box.appendChild(chip);
+  });
+}
+
+function syncControlsFromDoc() {
+  $('#bpm-slider').value = doc.bpm;
+  $('#bpm-display').textContent = doc.bpm;
+  $('#swing-slider').value = doc.swing;
+  $('#swing-display').textContent = doc.swing + '%';
+  $('#humanize-slider').value = doc.humanize;
+  $('#humanize-display').textContent = doc.humanize + '%';
+  $('#kit-select').value = doc.kit;
+  $('#genre-select').value = doc.genre;
+  $('#steps-select').value = String(doc.numSteps);
+
+  $('#rev-decay').value = Math.round(doc.fx.revDecay * 10);
+  $('#rev-display').textContent = doc.fx.revDecay.toFixed(1) + 's';
+  $('#delay-fb').value = Math.round(doc.fx.delayFb * 100);
+  $('#fb-display').textContent = Math.round(doc.fx.delayFb * 100) + '%';
+  $('#delay-time').value = doc.fx.delayTime;
+  $('#drive').value = doc.fx.drive;
+  $('#drive-display').textContent = Math.round(doc.fx.drive) + '%';
+
+  if (ui.audioReady) {
+    Tone.Transport.bpm.value = doc.bpm;
+    applySwing();
+    applyFxParams();
+  }
+}
+
+function renderAIStatus() {
+  const pill = $('#ai-pill');
+  const hasKey = !!settings.apiKey;
+
+  if (netGuest()) {
+    pill.className = 'ok';
+    pill.textContent = 'AI · on host';
+    pill.title = 'The host runs the AI in a jam session';
+    pill.style.cursor = 'default';
+    pill.onclick = null;
+  } else if (!ui.aiEnabled) {
+    pill.className = 'off';
+    pill.textContent = 'AI off';
+  } else if (!hasKey) {
+    pill.className = 'warn';
+    pill.textContent = 'AI needs a key';
+    pill.style.cursor = 'pointer';
+    pill.onclick = openSettings;
+  } else {
+    pill.className = 'ok';
+    pill.textContent = 'AI ready';
+    pill.title = settings.model;
+    pill.style.cursor = 'default';
+    pill.onclick = null;
+  }
+
+  $('#btn-ai-toggle').classList.toggle('on', ui.aiEnabled);
+  $('#btn-ai-toggle').setAttribute('aria-checked', String(ui.aiEnabled));
+  $('#ai-loading').classList.toggle('hidden', !ui.thinking);
+  $('#turn-indicator').textContent = ui.thinking
+    ? 'Your turn — the AI is answering in the background.'
+    : 'Your turn — click a cell to place a hit.';
+}
+
+function updateHistoryButtons() {
+  $('#btn-undo').disabled = hist.index <= 0;
+  $('#btn-redo').disabled = hist.index >= hist.stack.length - 1;
+}
+
+/* ------------------------------ logging -------------------------------- */
+function logAction(actor, text, subtext) {
+  const log = $('#collab-log');
+  if (log.firstElementChild && log.firstElementChild.classList.contains('italic')) log.innerHTML = '';
+
+  const entry = document.createElement('div');
+  entry.className = 'log-entry log-' + actor;
+
+  const who = document.createElement('span');
+  who.className = 'log-who';
+  who.textContent = actor === 'you' ? 'You' : actor === 'ai' ? 'AI' : 'System';
+
+  const msg = document.createElement('span');
+  msg.style.marginLeft = '.35rem';
+  msg.textContent = text;
+
+  entry.append(who, msg);
+
+  if (subtext) {
+    const sub = document.createElement('div');
+    sub.className = 'text-xs mt-0.5 italic';
+    sub.style.color = '#8d8d96';
+    sub.textContent = '“' + subtext + '”';
+    entry.appendChild(sub);
+  }
+
+  log.prepend(entry);
+  while (log.children.length > 60) log.lastElementChild.remove();
+
+  if (actor === 'ai' && netHost()) broadcast({ t: 'log', actor, text, sub: subtext || '' });
+}
+
+/* ----------------------------- interaction ----------------------------- */
+function handleCellClick(inst, step, clear) {
+  const pat = doc.patterns[ui.editPatternId];
+  const cell = pat[inst][step];
+
+  if (clear) {
+    if (!cell.active) return;
+    cell.active = false;
+    cell.owner = null;
+    cell.velocity = 1;
+    logAction('you', `Cleared ${inst} · step ${step + 1}`);
+  } else {
+    // off → 1.0 → 0.6 → 0.3 → off
+    if (!cell.active) { cell.active = true; cell.velocity = 1; cell.owner = 'you'; }
+    else if (cell.velocity > 0.8) cell.velocity = 0.6;
+    else if (cell.velocity > 0.45) cell.velocity = 0.3;
+    else { cell.active = false; cell.owner = null; cell.velocity = 1; }
+
+    if (cell.active) {
+      cell.owner = 'you';
+      logAction('you', `${inst} · step ${step + 1} · vel ${fmtVel(cell.velocity)}`);
+    } else {
+      logAction('you', `Removed ${inst} · step ${step + 1}`);
+    }
+  }
+
+  const key = cellKey(ui.editPatternId, inst, step);
+  if (cell.active) myCells.add(key); else myCells.delete(key);
+
+  renderGrid();
+  if (cell.active) playPreview(inst, cell.velocity);
+
+  commit(`${cell.active ? 'place' : 'remove'} ${inst} ${step + 1}`, { inst, step });
+  scheduleAutoRespond();
+}
+
+function scheduleAutoRespond() {
+  if (!ui.aiEnabled || !settings.apiKey) return;
+  clearTimeout(autoRespondTimer);
+  autoRespondTimer = setTimeout(() => aiRequest('respond'), 1100);
+}
+let autoRespondTimer = null;
+
+/* ------------------------------- history ------------------------------- */
+const hist = { stack: [], index: -1 };
+
+function cloneDoc() { return JSON.parse(JSON.stringify(doc)); }
+
+function commit(label, cellRef) {
+  hist.stack = hist.stack.slice(0, hist.index + 1);
+  hist.stack.push({ doc: cloneDoc(), label });
+  if (hist.stack.length > 80) hist.stack.shift();
+  hist.index = hist.stack.length - 1;
+  updateHistoryButtons();
+  saveLocal();
+  renderChainStrip();
+  syncAfterCommit(cellRef);
+}
+
+function restoreFrom(entry) {
+  doc = ensureDocShape(entry.doc);
+  syncControlsFromDoc();
+  setReverbDecay(doc.fx.revDecay);
+  renderGrid();
+  renderChainStrip();
+  updatePatternButtonsUI();
+  saveLocal();
+  updateHistoryButtons();
+}
+
+function undo() {
+  if (hist.index <= 0) return;
+  const undone = hist.stack[hist.index].label;
+  hist.index--;
+  restoreFrom(hist.stack[hist.index]);
+  logAction('system', `Undo: ${undone}`);
+  renderAIStatus();
+  syncAfterCommit(null);
+}
+
+function redo() {
+  if (hist.index >= hist.stack.length - 1) return;
+  hist.index++;
+  restoreFrom(hist.stack[hist.index]);
+  logAction('system', `Redo: ${hist.stack[hist.index].label}`);
+  syncAfterCommit(null);
+}
+
+/* --------------------------- persistence ------------------------------- */
+let saveTimer = null;
+function saveLocal() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => writeJSON(STORE_KEY, doc), 350);
+}
+
+function saveSettings() { writeJSON(SETTINGS_KEY, settings); }
+
+/* ------------------------------ sharing -------------------------------- */
+function encodeShare() {
+  const payload = { n: doc.numSteps, bpm: doc.bpm, sw: doc.swing, hum: doc.humanize, g: doc.genre, k: doc.kit, p: {} };
+  PATTERN_IDS.forEach(pat => {
+    const compact = {};
+    INSTRUMENTS.forEach(inst => {
+      const hits = [];
+      doc.patterns[pat][inst].forEach((c, i) => {
+        if (c.active) hits.push([i, Math.round(c.velocity * 100) / 100, c.owner === 'ai' ? 1 : 0]);
+      });
+      if (hits.length) compact[inst] = hits;
+    });
+    payload.p[pat] = compact;
+  });
+
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  let bin = '';
+  bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodeShare(code) {
+  try {
+    const b64 = code.replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const payload = JSON.parse(new TextDecoder().decode(bytes));
+
+    const d = newDoc();
+    d.numSteps = [12, 16].includes(payload.n) ? payload.n : 16;
+    d.bpm = payload.bpm || 120;
+    d.swing = payload.sw || 0;
+    d.humanize = payload.hum || 0;
+    d.genre = payload.g || d.genre;
+    d.kit = payload.k || d.kit;
+    d.patterns = {};
+    PATTERN_IDS.forEach(pat => {
+      d.patterns[pat] = newPattern(d.numSteps);
+      const src = (payload.p && payload.p[pat]) || {};
+      INSTRUMENTS.forEach(inst => {
+        (src[inst] || []).forEach(hit => {
+          const [i, vel, ai] = hit;
+          if (i >= 0 && i < d.numSteps) {
+            d.patterns[pat][inst][i] = { active: true, velocity: clamp(vel || 1, 0.05, 1), owner: ai ? 'ai' : 'you' };
+          }
+        });
+      });
+    });
+    return ensureDocShape(d);
+  } catch (e) {
+    console.warn('Share link could not be decoded', e);
+    return null;
+  }
+}
+
+function pageUrlBase() {
+  return location.protocol === 'file:' ? location.pathname : location.origin + location.pathname;
+}
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) { /* fall through */ }
+
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  ta.remove();
+  return ok;
+}
+
+async function shareLink() {
+  const url = pageUrlBase() + '#p=' + encodeShare();
+  if (await copyText(url)) {
+    logAction('system', 'Share link copied to the clipboard.');
+  } else {
+    window.prompt('Copy this share link:', url);
+    logAction('system', 'Share link ready in the prompt.');
+  }
+}
+
+/* --------------------------------- AI ---------------------------------- */
+const AI_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    reply: { type: 'STRING', description: 'One short sentence to the human, max 14 words.' },
+    replace: { type: 'BOOLEAN', description: 'If true, clear the pattern before applying ops.' },
+    ops: {
+      type: 'ARRAY',
+      description: 'Edits to apply in order. May be empty.',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          op: { type: 'STRING', description: 'One of: add, remove, setVelocity, move' },
+          instrument: { type: 'STRING', description: 'One of: ' + INSTRUMENTS.join(', ') },
+          step: { type: 'INTEGER', description: '1-based target step' },
+          toStep: { type: 'INTEGER', description: '1-based destination step, move only' },
+          velocity: { type: 'NUMBER', description: '0.1 to 1.0' }
+        },
+        required: ['op', 'instrument', 'step']
+      }
+    }
+  },
+  required: ['reply', 'ops']
+};
+
+const MODE_INSTRUCTION = {
+  respond: 'The human just made a move. Add or adjust 1-3 hits that improve the groove. Do not remove the human\'s hits.',
+  steer: 'The human asked for something specific. Make it happen with up to 14 ops. You may remove, move or re-voice any hit, including the human\'s, if it serves the request.',
+  inspire: 'Build a complete pattern from scratch for this genre. Set replace=true and return 8-20 add ops that form a coherent groove.',
+  coach: 'Critique the pattern like a producer. Return zero ops and put the feedback in reply.'
+};
+
+function compactGrid(patId) {
+  const pat = doc.patterns[patId];
+  const out = [];
+  INSTRUMENTS.forEach(inst => {
+    const hits = [];
+    for (let i = 0; i < doc.numSteps; i++) {
+      const c = pat[inst][i];
+      if (c && c.active) hits.push(`${i + 1}:${fmtVel(c.velocity)}`);
+    }
+    if (hits.length) out.push(`${inst} → ${hits.join(' ')}`);
+  });
+  return out.length ? out.join('\n') : '(empty)';
+}
+
+function analyzePattern(patId) {
+  const pat = doc.patterns[patId];
+  const perInstrument = {};
+  const perStep = Array(doc.numSteps).fill(0);
+  let total = 0, offGrid = 0, kickSteps = 0;
+
+  DRUMS.forEach(inst => {
+    let count = 0;
+    for (let i = 0; i < doc.numSteps; i++) {
+      if (pat[inst][i].active) {
+        count++;
+        total++;
+        perStep[i]++;
+        if (i % 4 !== 0) offGrid++;
+        if (inst === 'Kick' || inst === 'Tom') kickSteps++;
+      }
+    }
+    if (count) perInstrument[inst] = count;
+  });
+
+  const collisions = perStep.reduce((acc, n) => acc + (n > 3 ? 1 : 0), 0);
+  const kickOnSnare = [];
+  for (let i = 0; i < doc.numSteps; i++) {
+    if (pat.Kick[i].active && pat.Snare[i].active) kickOnSnare.push(i + 1);
+  }
+
+  return {
+    hits: total,
+    perInstrument,
+    syncopation: total ? Math.round((offGrid / total) * 100) : 0,
+    crowdedSteps: collisions,
+    kickAndSnareTogether: kickOnSnare,
+    emptySteps: perStep.reduce((acc, n) => acc + (n === 0 ? 1 : 0), 0)
+  };
+}
+
+function aiSystemPrompt(mode) {
+  const n = doc.numSteps;
+  return `You are the AI half of "illgorhythm", a turn-based drum machine.
+The human places hits; you answer with a small, musical set of edits.
+
+HARD RULES
+- Steps are 1-based integers, 1..${n}.
+- Allowed instruments exactly: ${INSTRUMENTS.join(', ')}.
+- "FX Reverb" and "FX Delay" are per-step send levels, not sounds: velocity = how much of that step goes to the effect.
+- Never place the same instrument twice on the same step.
+- Velocity 0.1-1.0. Ghost notes 0.2-0.4, accents 0.9-1.0.
+- Keep the low end coherent: avoid stacking Kick and Tom on the same step unless it is a deliberate fill.
+- Fewer, better placed notes win. If the pattern is already busy, return few or zero ops.
+- JSON only, matching the schema. "reply" is one short spoken sentence, max 14 words.
+
+CURRENT TASK
+${MODE_INSTRUCTION[mode] || MODE_INSTRUCTION.respond}
+
+CONTEXT
+Genre: ${doc.genre}
+Kit: ${doc.kit}
+Tempo: ${doc.bpm} BPM
+Pattern length: ${n} steps`;
+}
+
+async function aiFetch(payload) {
+  const url = `${API_BASE}/${encodeURIComponent(settings.model)}:generateContent`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+
+  try {
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': settings.apiKey },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+
+        if (!res.ok) {
+          const body = await res.text();
+          const err = new Error(`HTTP ${res.status}`);
+          err.status = res.status;
+          err.body = body.slice(0, 300);
+          if (res.status === 429 || res.status >= 500) { lastErr = err; }
+          else throw err;
+        } else {
+          const json = await res.json();
+          const text = (json.candidates && json.candidates[0] && json.candidates[0].content
+            ? json.candidates[0].content.parts.map(p => p.text || '').join('')
+            : '');
+          if (!text) throw new Error('Empty response from model');
+          return JSON.parse(text);
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') throw e;
+        lastErr = e;
+        if (e.status && e.status !== 429 && e.status < 500) throw e;
+      }
+      await new Promise(r => setTimeout(r, 700 * Math.pow(2, attempt)));
+    }
+    throw lastErr || new Error('Request failed');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+let pendingRequest = null;
+let missingKeyNoticed = false;
+
+async function aiRequest(mode, userText) {
+  if (netGuest()) {
+    if (mode === 'steer' || mode === 'inspire') { sendToHost({ t: 'steer', text: userText || 'generate a new pattern' }); return; }
+    logAction('system', 'The host runs the AI in a jam session.');
+    return;
+  }
+  if (!ui.aiEnabled) {
+    logAction('system', 'AI is paused — flip the AI switch next to the log to turn it back on.');
+    return;
+  }
+  if (!settings.apiKey) {
+    if (!missingKeyNoticed) {
+      missingKeyNoticed = true;
+      logAction('system', 'AI needs a Gemini API key. Add one in ⚙ settings to enable AI turns.');
+    }
+    return;
+  }
+  if (ui.thinking) { pendingRequest = { mode, userText }; return; }
+
+  ui.thinking = true;
+  renderAIStatus();
+
+  const patId = ui.editPatternId;
+  const body = [
+    `Pattern ${patId} — steps 1..${doc.numSteps}:`,
+    compactGrid(patId),
+    '',
+    'Metrics: ' + JSON.stringify(analyzePattern(patId)),
+    '',
+    mode === 'steer' ? `Human request: "${userText}"` : MODE_INSTRUCTION[mode]
+  ].join('\n');
+
+  const payload = {
+    systemInstruction: { parts: [{ text: aiSystemPrompt(mode) }] },
+    contents: [{ role: 'user', parts: [{ text: body }] }],
+    generationConfig: {
+      temperature: mode === 'coach' ? 0.9 : 0.7,
+      responseMimeType: 'application/json',
+      responseSchema: AI_SCHEMA
+    }
+  };
+
+  try {
+    const result = await aiFetch(payload);
+    applyAIResult(result, mode, patId);
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      logAction('system', 'AI request timed out.');
+    } else if (e.status === 400 || e.status === 401 || e.status === 403 || e.status === 404) {
+      const body = (e.body || '').toLowerCase();
+      if (body.includes('api key') || e.status === 401 || e.status === 403) {
+        logAction('system', 'That API key was rejected. Check it in ⚙ settings.');
+      } else if (e.status === 404 || body.includes('model')) {
+        logAction('system', `Model "${settings.model}" is not available to this key. Change it in ⚙ settings.`);
+      } else {
+        logAction('system', `The request was rejected (${e.status}). Check your key and model in ⚙ settings.`);
+      }
+    } else {
+      logAction('system', 'AI request failed: ' + e.message);
+    }
+    console.error(e);
+  } finally {
+    ui.thinking = false;
+    renderAIStatus();
+    if (pendingRequest) {
+      const next = pendingRequest;
+      pendingRequest = null;
+      setTimeout(() => aiRequest(next.mode, next.userText), 150);
+    }
+  }
+}
+
+/** Apply a list of edit ops to a pattern. Used by the AI and by remote peers. */
+function applyOpsTo(patId, ops, opts) {
+  const pat = doc.patterns[patId];
+  if (!pat || !Array.isArray(ops)) return 0;
+
+  const owner = (opts && opts.owner) || 'ai';
+  const allowUserEdits = !opts || opts.allowUserEdits !== false;
+  let applied = 0;
+
+  ops.slice(0, 32).forEach(op => {
+    const inst = INSTRUMENTS.includes(op.instrument) ? op.instrument : null;
+    const idx = Number(op.step) - 1;
+    if (!inst || !Number.isInteger(idx) || idx < 0 || idx >= doc.numSteps) return;
+
+    const cell = pat[inst][idx];
+    const owned = cell.owner === 'ai' || !cell.active;
+
+    switch (op.op) {
+      case 'set':
+        // direct state, used for human edits arriving over the wire
+        if (op.active) pat[inst][idx] = { active: true, owner, velocity: clamp(Number(op.velocity) || 1, 0.05, 1) };
+        else pat[inst][idx] = blankCell();
+        applied++;
+        break;
+
+      case 'add':
+        if (cell.active) return;
+        pat[inst][idx] = { active: true, owner, velocity: clamp(Number(op.velocity) || 1, 0.1, 1) };
+        applied++;
+        break;
+
+      case 'remove':
+        if (!cell.active) return;
+        if (!allowUserEdits && cell.owner === 'you') return;
+        pat[inst][idx] = blankCell();
+        applied++;
+        break;
+
+      case 'setVelocity':
+        if (!cell.active) return;
+        if (!allowUserEdits && !owned) return;
+        cell.velocity = clamp(Number(op.velocity) || cell.velocity, 0.1, 1);
+        cell.owner = owner;
+        applied++;
+        break;
+
+      case 'move': {
+        if (!cell.active) return;
+        const to = Number(op.toStep) - 1;
+        if (!Number.isInteger(to) || to < 0 || to >= doc.numSteps || pat[inst][to].active) return;
+        if (!allowUserEdits && cell.owner === 'you') return;
+        pat[inst][to] = { active: true, owner: cell.owner === 'you' ? 'you' : owner, velocity: cell.velocity };
+        pat[inst][idx] = blankCell();
+        applied++;
+        break;
+      }
+      default:
+        return;
+    }
+  });
+
+  return applied;
+}
+
+/** Apply an AI response atomically: one history entry, one re-render. */
+function applyAIResult(result, mode, patId) {
+  const patIdSafe = doc.patterns[patId] ? patId : ui.editPatternId;
+  const allowUserEdits = (mode === 'steer' || mode === 'inspire');
+
+  if (result.replace) {
+    INSTRUMENTS.forEach(inst => { doc.patterns[patIdSafe][inst] = Array.from({ length: doc.numSteps }, blankCell); });
+  }
+
+  const ops = Array.isArray(result.ops) ? result.ops : [];
+  const applied = applyOpsTo(patIdSafe, ops, { owner: 'ai', allowUserEdits });
+
+  renderGrid();
+
+  if (applied) {
+    commit('AI ' + mode);
+    // audition what the AI actually added
+    if (ui.audioReady) {
+      ops.slice(0, 3).forEach((op, i) => {
+        if (op.op !== 'add' || !INSTRUMENTS.includes(op.instrument)) return;
+        setTimeout(() => playPreview(op.instrument, clamp(Number(op.velocity) || 1, 0.1, 1)), 120 + i * 160);
+      });
+    }
+  }
+
+  const summary = result.reply || (applied ? 'Adjustment made.' : 'Nothing worth changing.');
+  logAction('ai', summary, applied ? `${applied} edit${applied === 1 ? '' : 's'} applied` : '');
+}
+
+/* ------------------------------ MIDI export ---------------------------- */
+/* midi-writer-js has no working browser global build, and its CDN path 404s,
+   so the file is encoded here directly. Format 0, one drum track, PPQ 128.   */
+const MIDI_MAP = {
+  'Kick': 36, 'Snare': 38, 'Rim': 37, 'Cl Hat': 42, 'Op Hat': 46, 'Tom': 43, 'Cymbal': 49
+};
+const PPQ = 128;
+const TICK_16 = PPQ / 4;
+
+function varLen(value) {
+  const out = [value & 0x7f];
+  value >>= 7;
+  while (value > 0) { out.unshift((value & 0x7f) | 0x80); value >>= 7; }
+  return out;
+}
+
+function encodeMidi(trackEvents, bpm, beatsPerBar) {
+  const header = [
+    0x4d, 0x54, 0x68, 0x64,              // MThd
+    0x00, 0x00, 0x00, 0x06,              // length
+    0x00, 0x00,                          // format 0
+    0x00, 0x01,                          // one track
+    (PPQ >> 8) & 0xff, PPQ & 0xff        // division
+  ];
+
+  const t = [];
+  const name = Array.from('illgorhythm', c => c.charCodeAt(0));
+  t.push(0x00, 0xff, 0x03, name.length, ...name);
+
+  const usPerQuarter = Math.round(60000000 / bpm);
+  t.push(0x00, 0xff, 0x51, 0x03,
+    (usPerQuarter >> 16) & 0xff, (usPerQuarter >> 8) & 0xff, usPerQuarter & 0xff);
+
+  t.push(0x00, 0xff, 0x58, 0x04, beatsPerBar & 0x7f, 2, 24, 8);
+
+  let last = 0;
+  trackEvents.forEach(ev => {
+    const delta = Math.max(0, ev.tick - last);
+    last = ev.tick;
+    t.push(...varLen(delta), ...ev.bytes);
+  });
+
+  t.push(0x00, 0xff, 0x2f, 0x00);        // end of track
+
+  const len = t.length;
+  return new Uint8Array([
+    ...header,
+    0x4d, 0x54, 0x72, 0x6b,              // MTrk
+    (len >> 24) & 0xff, (len >> 16) & 0xff, (len >> 8) & 0xff, len & 0xff,
+    ...t
+  ]);
+}
+
+function exportMidi() {
+  const useChain = ui.chainMode && doc.chain.length > 0;
+  const plan = useChain ? doc.chain : [{ pattern: ui.editPatternId, repeats: 1 }];
+
+  const timeline = [];
+  let bar = 0;
+
+  plan.forEach(entry => {
+    for (let r = 0; r < entry.repeats; r++) {
+      const pat = doc.patterns[entry.pattern];
+      for (let i = 0; i < doc.numSteps; i++) {
+        const swingShift = (i % 2 === 1) ? Math.round((doc.swing / 100) * TICK_16 * 0.5) : 0;
+        const tick = bar * doc.numSteps * TICK_16 + i * TICK_16 + swingShift;
+        DRUMS.forEach(inst => {
+          const cell = pat[inst][i];
+          if (!cell.active || !MIDI_MAP[inst]) return;
+          timeline.push({ tick, note: MIDI_MAP[inst], vel: clamp(Math.round(cell.velocity * 127), 1, 127) });
+        });
+      }
+      bar++;
+    }
+  });
+
+  if (!timeline.length) {
+    logAction('system', 'Nothing to export — the pattern is empty.');
+    return;
+  }
+
+  const trackEvents = [];
+  timeline.forEach(n => {
+    trackEvents.push({ tick: n.tick, order: 1, bytes: [0x99, n.note, n.vel] });          // note on, ch 10
+    trackEvents.push({ tick: n.tick + 16, order: 0, bytes: [0x89, n.note, 0] });          // note off
+  });
+  trackEvents.sort((a, b) => (a.tick - b.tick) || (a.order - b.order));
+
+  const bytes = encodeMidi(trackEvents, doc.bpm, doc.numSteps / 4);
+  const blob = new Blob([bytes], { type: 'audio/midi' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `illgorhythm_${useChain ? 'arrangement' : 'pattern-' + ui.editPatternId}_${doc.bpm}bpm.mid`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+  logAction('system', `Exported ${timeline.length} notes · ${useChain ? 'full arrangement' : 'pattern ' + ui.editPatternId} · swing baked in.`);
+}
+
+/* ------------------------------ FX plumbing ---------------------------- */
+let revTimer = null;
+let lastRevDecay = null;
+
+function applyFxParams() {
+  if (!ui.audioReady) return;
+  if (delay) {
+    delay.feedback.rampTo(doc.fx.delayFb, 0.05);
+    delay.delayTime.rampTo(Tone.Time(doc.fx.delayTime).toSeconds(), 0.08);
+  }
+  if (driveNode) {
+    driveNode.distortion = 0.15 + (doc.fx.drive / 100) * 0.8;
+    driveNode.wet.rampTo(doc.fx.drive / 100, 0.05);
+  }
+}
+
+function setReverbDecay(seconds) {
+  doc.fx.revDecay = seconds;
+  if (lastRevDecay !== null && Math.abs(lastRevDecay - seconds) < 0.01) return;
+  lastRevDecay = seconds;
+  clearTimeout(revTimer);
+  revTimer = setTimeout(async () => {
+    if (!reverb) return;
+    try {
+      reverb.decay = seconds;
+      await reverb.generate();
+    } catch (e) { console.warn('Reverb regeneration failed', e); }
+  }, 220);
+}
+
+/* ------------------------------ settings UI ---------------------------- */
+function openSettings() {
+  $('#key-input').value = settings.apiKey || '';
+  $('#model-input').value = settings.model || DEFAULT_MODEL;
+  $('#settings-modal').showModal();
+}
+
+function closeSettings() { $('#settings-modal').close(); }
+
+/* ----------------------------- jam sessions ---------------------------- */
+/* Peer-to-peer: PeerJS handles signalling, then browsers talk directly.
+   The host owns the document; guests push targeted cell ops and the host
+   answers with debounced snapshots. Both sides run their own sequencer,
+   aligned by ping/pong RTT against the host's transport.               */
+const PEER_PREFIX = 'illgorhythm-';
+const ROOM_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const NAME_ADJ = ['teal', 'tan', 'amber', 'velvet', 'midnight', 'echo', 'loose', 'atomic', 'dusty', 'neon'];
+const NAME_NOUN = ['fox', 'drummer', 'circuit', 'ghost', 'hihat', 'tape', 'spark', 'crate', 'sub', 'loop'];
+
+function randomRoom() {
+  let out = '';
+  for (let i = 0; i < 5; i++) out += ROOM_CHARS[Math.floor(Math.random() * ROOM_CHARS.length)];
+  return out;
+}
+function randomName() {
+  return NAME_ADJ[Math.floor(Math.random() * NAME_ADJ.length)] + '-' + NAME_NOUN[Math.floor(Math.random() * NAME_NOUN.length)];
+}
+
+const Net = {
+  role: null, code: null, name: randomName(),
+  peer: null, hostConn: null, guests: [], names: [],
+  pingSeq: 0, pings: new Map(), clockTimer: null,
+  syncTimer: null, docTimer: null, hostAttempts: 0, leaving: false
+};
+
+const peerLibOk = () => typeof Peer !== 'undefined';
+const netHost = () => Net.role === 'host';
+const netGuest = () => Net.role === 'guest';
+
+function broadcast(msg) {
+  if (!netHost()) return;
+  Net.guests.forEach(conn => {
+    if (conn.open) { try { conn.send(msg); } catch (e) { /* dropped */ } }
+  });
+}
+
+function sendToHost(msg) {
+  if (!netGuest() || !Net.hostConn || !Net.hostConn.open) return;
+  try { Net.hostConn.send(msg); } catch (e) { /* dropped */ }
+}
+
+function sessionNames() {
+  if (netHost()) return [Net.name + ' · host', ...Net.guests.map(c => c._name || 'guest')];
+  return Net.names.slice();
+}
+
+const myCells = new Set();
+const cellKey = (pat, inst, step) => pat + '|' + inst + '|' + step;
+
+/** A peer's doc can only say "mine" or "not mine". Restore the local view:
+ *  cells this browser placed stay yours, AI stays AI, everything else is a peer. */
+function retagOwnership() {
+  PATTERN_IDS.forEach(pat => {
+    INSTRUMENTS.forEach(inst => {
+      doc.patterns[pat][inst].forEach((cell, i) => {
+        if (!cell.active) return;
+        if (myCells.has(cellKey(pat, inst, i))) cell.owner = 'you';
+        else if (cell.owner !== 'ai') cell.owner = 'peer';
+      });
+    });
+  });
+}
+
+function flashCell(inst, step) {
+  const el = document.querySelector(`.cell[data-inst="${inst}"][data-step="${step}"]`);
+  if (!el) return;
+  el.classList.add('peerflash');
+  setTimeout(() => el.classList.remove('peerflash'), 520);
+}
+
+function sessionError(text) {
+  const el = $('#session-status');
+  if (el) el.textContent = text || '';
+  if (text) logAction('system', text);
+}
+
+function renderSessionUI() {
+  const live = !!Net.role;
+  $('#session-idle').classList.toggle('hidden', live);
+  $('#session-live').classList.toggle('hidden', !live);
+  $('#room-code').textContent = Net.code || '-----';
+
+  const chip = $('#presence-chip');
+  chip.style.display = live ? 'inline-flex' : 'none';
+  if (live) $('#presence-count').textContent = Math.max(1, sessionNames().length) + ' in jam';
+
+  const list = $('#peer-list');
+  list.replaceChildren();
+  if (live) {
+    sessionNames().forEach((name, i) => {
+      const row = document.createElement('div');
+      row.className = 'peer-row' + (i === 0 ? ' you' : '');
+      const dot = document.createElement('span');
+      dot.className = 'presence-dot';
+      const label = document.createElement('span');
+      label.textContent = name;
+      row.append(dot, label);
+      list.appendChild(row);
+    });
+  }
+
+  const isFile = location.protocol === 'file:';
+  $('#btn-copy-invite').classList.toggle('hidden', isFile);
+  $('#file-hint').classList.toggle('hidden', !isFile);
+  renderAIStatus();
+}
+
+function applyRemoteDoc(incoming) {
+  if (!incoming || typeof incoming !== 'object') return;
+  doc = ensureDocShape(incoming);
+  retagOwnership();
+  syncControlsFromDoc();
+  renderGrid();
+  renderChainStrip();
+  updatePatternButtonsUI();
+  saveLocal();
+}
+
+function scheduleBroadcast() {
+  if (!netHost()) return;
+  clearTimeout(Net.syncTimer);
+  Net.syncTimer = setTimeout(() => broadcast({ t: 'snapshot', doc: cloneDoc() }), 90);
+}
+
+function cellOp(ref) {
+  const cell = doc.patterns[ui.editPatternId][ref.inst][ref.step];
+  return { op: 'set', instrument: ref.inst, step: ref.step + 1, active: !!cell.active, velocity: cell.velocity };
+}
+
+/** Called from commit() so every mutation reaches the other side. */
+function syncAfterCommit(cellRef) {
+  if (netHost()) { scheduleBroadcast(); return; }
+  if (!netGuest()) return;
+
+  if (cellRef) {
+    sendToHost({ t: 'ops', patId: ui.editPatternId, ops: [cellOp(cellRef)], touch: { inst: cellRef.inst, step: cellRef.step } });
+  } else {
+    clearTimeout(Net.docTimer);
+    Net.docTimer = setTimeout(() => sendToHost({ t: 'applyDoc', doc: cloneDoc() }), 140);
+  }
+}
+
+/* --- clock --- */
+function pingNow() {
+  if (!netGuest() || !Net.hostConn || !Net.hostConn.open) return;
+  const id = ++Net.pingSeq;
+  Net.pings.set(id, performance.now());
+  if (Net.pings.size > 8) Net.pings.clear();
+  sendToHost({ t: 'ping', id });
+}
+
+function startClock() {
+  stopClock();
+  pingNow();
+  Net.clockTimer = setInterval(pingNow, 1500);
+}
+
+function stopClock() {
+  if (Net.clockTimer) clearInterval(Net.clockTimer);
+  Net.clockTimer = null;
+  Net.pings.clear();
+}
+
+function onPong(msg) {
+  const sentAt = Net.pings.get(msg.id);
+  if (sentAt === undefined) return;
+  Net.pings.delete(msg.id);
+  if (!ui.audioReady || typeof msg.sec !== 'number') return;
+
+  const target = msg.sec + (performance.now() - sentAt) / 2000;
+
+  if (msg.pat && doc.patterns[msg.pat] && msg.pat !== ui.playbackPatternId) {
+    ui.playbackPatternId = msg.pat;
+    updatePatternButtonsUI();
+  }
+
+  if (msg.playing) {
+    if (!ui.isPlaying) {
+      Tone.Transport.seconds = target;
+      setTransport(true);
+    } else if (Math.abs(Tone.Transport.seconds - target) > 0.06) {
+      Tone.Transport.seconds = target;
+    }
+    if (typeof msg.bpm === 'number' && Math.abs(Tone.Transport.bpm.value - msg.bpm) > 0.5) {
+      Tone.Transport.bpm.value = msg.bpm;
+    }
+  } else if (ui.isPlaying) {
+    setTransport(false);
+  }
+}
+
+/* --- peer lifecycle --- */
+function onPeerError(err) {
+  const type = err && err.type;
+
+  if (type === 'unavailable-id' && netHost() && Net.hostAttempts < 3) {
+    Net.hostAttempts++;
+    Net.code = randomRoom();
+    try { Net.peer.destroy(); } catch (e) { /* ignore */ }
+    hostPeer();
+    renderSessionUI();
+    return;
+  }
+
+  const messages = {
+    'peer-unavailable': 'No live session with that code — is the host still online?',
+    'unavailable-id': 'That room code is taken. Try starting a session again.',
+    'network': 'Could not reach the signalling server.',
+    'server-error': 'The signalling server had a problem. Try again.',
+    'browser-incompatible': 'This browser cannot do peer-to-peer sessions.',
+    'webrtc': 'The peer-to-peer link failed (restrictive network?).'
+  };
+  sessionError(messages[type] || ('Session error: ' + (type || 'unknown')));
+  renderSessionUI();
+}
+
+function hostPeer() {
+  Net.peer = new Peer(PEER_PREFIX + Net.code, { debug: 0 });
+
+  Net.peer.on('open', () => {
+    renderSessionUI();
+    broadcast({ t: 'presence', names: sessionNames() });
+  });
+
+  Net.peer.on('error', onPeerError);
+
+  Net.peer.on('connection', conn => {
+    conn.on('open', () => {
+      Net.guests.push(conn);
+      broadcast({ t: 'presence', names: sessionNames() });
+      renderSessionUI();
+    });
+    conn.on('data', msg => onHostData(conn, msg));
+    conn.on('close', () => {
+      Net.guests = Net.guests.filter(c => c !== conn);
+      broadcast({ t: 'presence', names: sessionNames() });
+      renderSessionUI();
+      if (conn._name) logAction('system', `${conn._name} left the jam.`);
+    });
+    conn.on('error', () => { /* handled by close */ });
+  });
+}
+
+function guestPeer() {
+  Net.peer = new Peer(undefined, { debug: 0 });
+  Net.peer.on('error', onPeerError);
+
+  Net.peer.on('open', () => {
+    const conn = Net.peer.connect(PEER_PREFIX + Net.code, { reliable: true });
+    Net.hostConn = conn;
+
+    conn.on('open', () => {
+      conn.send({ t: 'hello', name: Net.name });
+      startClock();
+      renderSessionUI();
+    });
+    conn.on('data', onGuestData);
+    conn.on('close', () => {
+      stopClock();
+      if (ui.isPlaying) setTransport(false);
+      Net.names = [];
+      renderSessionUI();
+      if (Net.leaving) { Net.leaving = false; return; }
+      Net.role = null;
+      Net.code = null;
+      try { if (Net.peer) Net.peer.destroy(); } catch (e) { /* already gone */ }
+      Net.peer = null;
+      logAction('system', 'The session ended — the host went offline.');
+      renderSessionUI();
+    });
+    conn.on('error', () => { /* handled by close */ });
+  });
+}
+
+function onHostData(conn, msg) {
+  if (!msg || typeof msg !== 'object') return;
+
+  switch (msg.t) {
+    case 'hello':
+      conn._name = String(msg.name || 'guest').slice(0, 18);
+      conn.send({ t: 'welcome', doc: cloneDoc(), names: sessionNames(), pat: ui.playbackPatternId });
+      broadcast({ t: 'presence', names: sessionNames() });
+      renderSessionUI();
+      logAction('system', `${conn._name} joined the jam.`);
+      break;
+
+    case 'ops': {
+      const applied = applyOpsTo(msg.patId, msg.ops, { owner: 'peer', allowUserEdits: true });
+      if (!applied) break;
+      renderGrid();
+      commit(`${conn._name} edited`, null);
+      if (msg.touch) {
+        flashCell(msg.touch.inst, msg.touch.step);
+        broadcast({ t: 'touch', inst: msg.touch.inst, step: msg.touch.step, by: conn._name });
+      }
+      break;
+    }
+
+    case 'applyDoc':
+      if (!msg.doc) break;
+      doc = ensureDocShape(msg.doc);
+      retagOwnership();
+      syncControlsFromDoc();
+      renderGrid();
+      renderChainStrip();
+      updatePatternButtonsUI();
+      commit(`${conn._name} changed the session`, null);
+      break;
+
+    case 'ping':
+      conn.send({
+        t: 'pong', id: msg.id, sec: Tone.Transport.seconds, playing: ui.isPlaying,
+        bpm: doc.bpm, pat: ui.playbackPatternId
+      });
+      break;
+
+    case 'requestTransport': togglePlay(); break;
+    case 'requestChain': toggleChain(); break;
+
+    case 'steer':
+      logAction('you', `${conn._name}: ${msg.text}`);
+      aiRequest('steer', msg.text);
+      break;
+
+    case 'touch':
+      broadcast({ t: 'touch', inst: msg.inst, step: msg.step, by: conn._name });
+      break;
+  }
+}
+
+function onGuestData(msg) {
+  if (!msg || typeof msg !== 'object') return;
+
+  switch (msg.t) {
+    case 'welcome':
+      Net.names = Array.isArray(msg.names) ? msg.names : [];
+      applyRemoteDoc(msg.doc);
+      if (msg.pat && doc.patterns[msg.pat]) {
+        ui.playbackPatternId = msg.pat;
+        ui.editPatternId = msg.pat;
+        updatePatternButtonsUI();
+      }
+      // start history at the joined document: undoing back to a solo pattern
+      // would otherwise push stale state at the host on the first Cmd+Z
+      hist.stack = [{ doc: cloneDoc(), label: 'joined session' }];
+      hist.index = 0;
+      updateHistoryButtons();
+      renderSessionUI();
+      logAction('system', `Joined ${Net.code}. Everything you both play stays in sync.`);
+      break;
+
+    case 'snapshot': applyRemoteDoc(msg.doc); break;
+
+    case 'presence':
+      Net.names = Array.isArray(msg.names) ? msg.names : [];
+      renderSessionUI();
+      break;
+
+    case 'log': logAction(msg.actor || 'system', msg.text || '', msg.sub || ''); break;
+
+    case 'pong': onPong(msg); break;
+
+    case 'transport':
+      if (msg.playing) pingNow();
+      else if (ui.isPlaying) setTransport(false);
+      break;
+
+    case 'pattern':
+      if (msg.pat && doc.patterns[msg.pat]) {
+        ui.playbackPatternId = msg.pat;
+        updatePatternButtonsUI();
+      }
+      break;
+
+    case 'chain':
+      ui.chainMode = !!msg.on;
+      ui.chainIndex = 0;
+      ui.chainRepeat = 0;
+      if (!ui.chainMode) ui.playbackPatternId = ui.editPatternId;
+      applyChainUI();
+      break;
+
+    case 'touch': flashCell(msg.inst, msg.step); break;
+  }
+}
+
+/* --- session control --- */
+function startHosting() {
+  if (!peerLibOk()) { sessionError('PeerJS did not load — check your connection.'); return; }
+  leaveSession(true);
+  Net.role = 'host';
+  Net.code = randomRoom();
+  Net.hostAttempts = 0;
+  sessionError('');
+  hostPeer();
+  renderSessionUI();
+  logAction('system', `Session ${Net.code} opened — send the code to a friend.`);
+}
+
+function joinRoom(code) {
+  const clean = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
+  if (clean.length < 4) { sessionError('That room code looks too short.'); return; }
+  if (!peerLibOk()) { sessionError('PeerJS did not load — check your connection.'); return; }
+
+  leaveSession(true);
+  Net.role = 'guest';
+  Net.code = clean;
+  sessionError('');
+  guestPeer();
+  renderSessionUI();
+  logAction('system', `Joining ${clean}…`);
+}
+
+function leaveSession(silent) {
+  Net.leaving = true;
+  stopClock();
+  clearTimeout(Net.syncTimer);
+  clearTimeout(Net.docTimer);
+  try { if (Net.hostConn) Net.hostConn.close(); } catch (e) { /* ignore */ }
+  try { if (Net.peer) Net.peer.destroy(); } catch (e) { /* ignore */ }
+  Net.peer = null;
+  Net.hostConn = null;
+  Net.guests = [];
+  Net.names = [];
+  Net.role = null;
+  Net.code = null;
+  Net.hostAttempts = 0;
+  setTimeout(() => { Net.leaving = false; }, 1500);
+  renderSessionUI();
+  if (!silent) logAction('system', 'Left the session — you are playing solo again.');
+}
+
+async function copyInvite() {
+  const url = pageUrlBase() + '?room=' + Net.code;
+  if (await copyText(url)) logAction('system', 'Invite link copied.');
+  else window.prompt('Copy this invite link:', url);
+}
+
+/* -------------------------------- wiring ------------------------------- */
+function setTransport(playing) {
+  if (!ui.audioReady) return;
+  ui.isPlaying = playing;
+  const btn = $('#btn-play');
+
+  if (playing) Tone.Transport.start();
+  else Tone.Transport.stop();
+
+  btn.classList.toggle('playing', playing);
+  $('#icon-play').classList.toggle('hidden', playing);
+  $('#icon-stop').classList.toggle('hidden', !playing);
+  btn.setAttribute('aria-label', playing ? 'Stop' : 'Play');
+  if (!playing) $('#playhead').style.display = 'none';
+  updatePatternButtonsUI();
+}
+
+function togglePlay() {
+  if (!ui.audioReady) return;
+  if (netGuest()) { sendToHost({ t: 'requestTransport' }); return; }
+  if (ui.chainMode && !ui.isPlaying) { ui.chainIndex = 0; ui.chainRepeat = 0; }
+  setTransport(!ui.isPlaying);
+  if (netHost()) broadcast({ t: 'transport', playing: ui.isPlaying, sec: Tone.Transport.seconds });
+}
+
+function applyChainUI() {
+  const btn = $('#btn-chain');
+  btn.classList.toggle('on', ui.chainMode);
+  btn.setAttribute('aria-checked', String(ui.chainMode));
+  $('#chain-strip').style.display = ui.chainMode ? 'flex' : 'none';
+  updatePatternButtonsUI();
+}
+
+function toggleChain() {
+  ui.chainMode = !ui.chainMode;
+  ui.chainIndex = 0;
+  ui.chainRepeat = 0;
+  if (!ui.chainMode) ui.playbackPatternId = ui.editPatternId;
+
+  applyChainUI();
+  logAction('system', ui.chainMode
+    ? `Chain mode on — playing ${doc.chain.map(e => e.pattern + '×' + e.repeats).join(' → ')}`
+    : 'Chain mode off — looping the selected pattern.');
+
+  if (netHost()) broadcast({ t: 'chain', on: ui.chainMode });
+}
+
+function selectPattern(pat) {
+  ui.editPatternId = pat;
+  if (!ui.chainMode && !netGuest()) ui.playbackPatternId = pat;
+  updatePatternButtonsUI();
+  renderGrid();
+  renderChainStrip();
+  logAction('you', `Editing pattern ${pat}`);
+}
+
+function setPatternLength(n) {
+  if (n === doc.numSteps) return;
+  const previous = doc.numSteps;
+
+  PATTERN_IDS.forEach(pat => {
+    INSTRUMENTS.forEach(inst => {
+      const old = doc.patterns[pat][inst];
+      doc.patterns[pat][inst] = Array.from({ length: n }, (_, i) =>
+        old[i] ? Object.assign({}, old[i]) : blankCell());
+    });
+  });
+
+  doc.numSteps = n;
+  syncControlsFromDoc();
+  renderGrid();
+  commit(`length ${previous}→${n} steps`);
+
+  const lost = previous > n;
+  logAction('system', `Pattern length is now ${n} steps.` + (lost ? ` Steps ${n + 1}-${previous} were trimmed — ⌘Z restores them.` : ''));
+}
+
+function clearPattern() {
+  INSTRUMENTS.forEach(inst => {
+    for (let i = 0; i < doc.numSteps; i++) myCells.delete(cellKey(ui.editPatternId, inst, i));
+    doc.patterns[ui.editPatternId][inst] = Array.from({ length: doc.numSteps }, blankCell);
+  });
+  renderGrid();
+  commit('clear pattern ' + ui.editPatternId);
+  logAction('you', `Cleared pattern ${ui.editPatternId}.`);
+}
+
+function boot() {
+  // 1. document: share link > local storage > blank
+  const hash = location.hash;
+  let loadedShared = false;
+  let priorDoc = null;
+
+  if (hash.startsWith('#p=')) {
+    const shared = decodeShare(hash.slice(3));
+    if (shared) {
+      const stored = readJSON(STORE_KEY);
+      priorDoc = stored ? ensureDocShape(stored) : null;
+      doc = shared;
+      loadedShared = true;
+    }
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* file:// */ }
+  } else {
+    const stored = readJSON(STORE_KEY);
+    if (stored) doc = ensureDocShape(stored);
+  }
+
+  // 2. render
+  syncControlsFromDoc();
+  renderGrid();
+  renderChainStrip();
+  updatePatternButtonsUI();
+  renderAIStatus();
+  renderSessionUI();
+  applyChainUI();
+
+  // auto-join when the page is opened from an invite link
+  const roomParam = new URLSearchParams(location.search).get('room');
+  if (roomParam) {
+    logAction('system', `Invite detected — joining ${String(roomParam).toUpperCase()}.`);
+    joinRoom(roomParam);
+  }
+
+  // 3. history: a shared pattern stays undoable back to your own session
+  hist.stack = [];
+  if (priorDoc) hist.stack.push({ doc: priorDoc, label: 'your session before the link' });
+  hist.stack.push({ doc: cloneDoc(), label: loadedShared ? 'shared pattern' : 'session start' });
+  hist.index = hist.stack.length - 1;
+  updateHistoryButtons();
+  saveLocal();
+
+  if (loadedShared) logAction('system', 'Loaded a shared pattern. ⌘Z goes back to your own.');
+  else if (Object.keys(readJSON(STORE_KEY) || {}).length) logAction('system', 'Restored your last session.');
+
+  // 4. audio gate
+  const startModal = $('#start-modal');
+  startModal.showModal();
+
+  $('#btn-start-audio').addEventListener('click', async () => {
+    const btn = $('#btn-start-audio');
+    btn.disabled = true;
+    btn.textContent = 'Waking the audio engine…';
+    try {
+      await Tone.start();
+      await setupAudio();
+      ui.audioReady = true;
+      startModal.close();
+      renderGrid();
+      if (netGuest()) { startClock(); pingNow(); }
+      logAction('ai', "I'm listening. Drop a hit anywhere and I'll answer.");
+    } catch (e) {
+      console.error(e);
+      btn.disabled = false;
+      btn.textContent = 'Audio failed — retry';
+    }
+  });
+
+  $('#btn-skip-audio').addEventListener('click', () => startModal.close());
+
+  // transport
+  $('#btn-play').addEventListener('click', togglePlay);
+
+  document.addEventListener('keydown', e => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+    if (typing) {
+      if (e.key === 'Escape') e.target.blur();
+      return;
+    }
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    } else if (mod && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      redo();
+    } else if (e.code === 'Space') {
+      e.preventDefault();
+      togglePlay();
+    }
+  });
+
+  // tempo / feel
+  $('#bpm-slider').addEventListener('input', e => {
+    doc.bpm = parseInt(e.target.value, 10);
+    $('#bpm-display').textContent = doc.bpm;
+    if (ui.audioReady) Tone.Transport.bpm.rampTo(doc.bpm, 0.1);
+  });
+  $('#bpm-slider').addEventListener('change', () => { commit('tempo ' + doc.bpm); });
+
+  $('#swing-slider').addEventListener('input', e => {
+    doc.swing = parseInt(e.target.value, 10);
+    $('#swing-display').textContent = doc.swing + '%';
+    if (ui.audioReady) applySwing();
+  });
+  $('#swing-slider').addEventListener('change', () => { commit('swing ' + doc.swing); });
+
+  $('#humanize-slider').addEventListener('input', e => {
+    doc.humanize = parseInt(e.target.value, 10);
+    $('#humanize-display').textContent = doc.humanize + '%';
+  });
+  $('#humanize-slider').addEventListener('change', () => { commit('humanize ' + doc.humanize); });
+
+  // selectors
+  $('#kit-select').addEventListener('change', e => {
+    doc.kit = e.target.value;
+    if (ui.audioReady) loadDrumKit(doc.kit);
+    commit('kit ' + doc.kit);
+    logAction('you', `Loaded the ${doc.kit} kit.`);
+  });
+
+  $('#genre-select').addEventListener('change', e => {
+    doc.genre = e.target.value;
+    commit('genre ' + doc.genre);
+    logAction('you', `Genre set to ${doc.genre}.`);
+  });
+
+  $('#steps-select').addEventListener('change', e => {
+    setPatternLength(parseInt(e.target.value, 10));
+  });
+
+  // patterns + chain
+  $$('.pat-btn').forEach(btn => btn.addEventListener('click', () => selectPattern(btn.dataset.pat)));
+  $('#btn-chain').addEventListener('click', () => {
+    if (netGuest()) { sendToHost({ t: 'requestChain' }); return; }
+    toggleChain();
+  });
+
+  $$('[data-append]').forEach(btn => btn.addEventListener('click', () => {
+    doc.chain.push({ pattern: btn.dataset.append, repeats: 1 });
+    commit('chain append');
+    renderChainStrip();
+  }));
+
+  // actions
+  $('#btn-undo').addEventListener('click', undo);
+  $('#btn-redo').addEventListener('click', redo);
+  $('#btn-clear').addEventListener('click', clearPattern);
+  $('#btn-share').addEventListener('click', shareLink);
+  $('#btn-export-midi').addEventListener('click', exportMidi);
+  $('#btn-fx').addEventListener('click', () => $('#fx-drawer').classList.toggle('hidden'));
+  $('#btn-inspire').addEventListener('click', () => aiRequest('inspire'));
+
+  // AI toggle
+  $('#btn-ai-toggle').addEventListener('click', () => {
+    ui.aiEnabled = !ui.aiEnabled;
+    settings.aiEnabled = ui.aiEnabled;
+    saveSettings();
+    renderAIStatus();
+    logAction('system', ui.aiEnabled ? 'AI turns enabled.' : 'AI turns paused — the grid is all yours.');
+  });
+
+  // steer
+  $('#steer-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const input = $('#steer-input');
+    const text = input.value.trim();
+    if (!text) return;
+    logAction('you', text);
+    input.value = '';
+    aiRequest('steer', text);
+  });
+
+  $$('[data-steer]').forEach(chip => chip.addEventListener('click', () => {
+    const value = chip.dataset.steer;
+    if (value === '__coach') { aiRequest('coach'); return; }
+    logAction('you', value);
+    aiRequest('steer', value);
+  }));
+
+  // FX drawer
+  const rev = $('#rev-decay');
+  rev.addEventListener('input', () => {
+    const seconds = parseInt(rev.value, 10) / 10;
+    $('#rev-display').textContent = seconds.toFixed(1) + 's';
+    setReverbDecay(seconds);
+  });
+  rev.addEventListener('change', () => commit('reverb decay'));
+
+  const fb = $('#delay-fb');
+  fb.addEventListener('input', () => {
+    doc.fx.delayFb = parseInt(fb.value, 10) / 100;
+    $('#fb-display').textContent = Math.round(doc.fx.delayFb * 100) + '%';
+    applyFxParams();
+  });
+  fb.addEventListener('change', () => commit('delay feedback'));
+
+  $('#delay-time').addEventListener('change', e => {
+    doc.fx.delayTime = e.target.value;
+    applyFxParams();
+    commit('delay time');
+  });
+
+  const dr = $('#drive');
+  dr.addEventListener('input', () => {
+    doc.fx.drive = parseInt(dr.value, 10);
+    $('#drive-display').textContent = doc.fx.drive + '%';
+    applyFxParams();
+  });
+  dr.addEventListener('change', () => commit('drive'));
+
+  // settings
+  // jam session
+  $('#btn-jam').addEventListener('click', () => {
+    sessionError('');
+    renderSessionUI();
+    $('#session-modal').showModal();
+  });
+  $('#btn-close-session').addEventListener('click', () => $('#session-modal').close());
+  $('#btn-host').addEventListener('click', startHosting);
+  $('#btn-join').addEventListener('click', () => joinRoom($('#join-code').value));
+  $('#join-code').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('#join-code').value); });
+  $('#btn-leave').addEventListener('click', () => leaveSession(false));
+  $('#btn-copy-invite').addEventListener('click', copyInvite);
+
+  $('#btn-settings').addEventListener('click', openSettings);
+  $('#btn-close-settings').addEventListener('click', closeSettings);
+  $('#btn-save-settings').addEventListener('click', () => {
+    settings.apiKey = $('#key-input').value.trim();
+    settings.model = $('#model-input').value.trim() || DEFAULT_MODEL;
+    saveSettings();
+    renderAIStatus();
+    closeSettings();
+    logAction('system', settings.apiKey
+      ? `AI connected · ${settings.model}`
+      : 'API key cleared — AI turns are disabled.');
+  });
+  $('#btn-reset-all').addEventListener('click', () => {
+    if (!confirm('Reset the pattern, arrangement and FX to defaults?')) return;
+    doc = newDoc();
+    syncControlsFromDoc();
+    renderGrid();
+    renderChainStrip();
+    commit('reset');
+    closeSettings();
+    logAction('system', 'Everything reset to defaults.');
+  });
+
+  // save on the way out
+  window.addEventListener('beforeunload', () => writeJSON(STORE_KEY, doc));
+}
+
+boot();
+</script>
+</body>
+</html>
