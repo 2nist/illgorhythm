@@ -410,7 +410,7 @@
   <div id="fx-drawer" class="panel p-4 mt-3 hidden">
     <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
       <h3 class="ctl-label">Master FX</h3>
-      <span class="text-[.65rem]" style="color:#6f6f79">FX rows in the grid are per-step send levels</span>
+      <span class="text-[.65rem]" style="color:#6f6f79">FX rows are per-step sends · Stutter = ratchet the mix</span>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
       <div>
@@ -418,16 +418,15 @@
         <input type="range" id="rev-decay" min="2" max="80" value="25" class="w-full">
       </div>
       <div>
-        <label class="ctl-label flex justify-between mb-1"><span>Delay feedback</span><span id="fb-display" class="font-mono">35%</span></label>
-        <input type="range" id="delay-fb" min="0" max="90" value="35" class="w-full">
+        <label class="ctl-label flex justify-between mb-1"><span>Stutter repeats</span><span id="fb-display" class="font-mono">82%</span></label>
+        <input type="range" id="delay-fb" min="10" max="95" value="82" class="w-full">
       </div>
       <div>
-        <label class="ctl-label mb-1 block">Delay time</label>
+        <label class="ctl-label mb-1 block">Stutter rate</label>
         <select id="delay-time" class="select w-full">
-          <option value="16n">1/16</option>
-          <option value="8n" selected>1/8</option>
-          <option value="8n.">1/8 dotted</option>
-          <option value="4n.">1/4 dotted</option>
+          <option value="16n">1/16 ratchet</option>
+          <option value="32n" selected>1/32 ratchet</option>
+          <option value="64n">1/64 roll</option>
         </select>
       </div>
       <div>
@@ -653,9 +652,9 @@ const BUILD = '2026-11-03 · bass';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const BASS_TRACK = 'Bass';
-const INSTRUMENTS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal', BASS_TRACK, 'FX Reverb', 'FX Delay'];
+const INSTRUMENTS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal', BASS_TRACK, 'FX Reverb', 'FX Stutter'];
 const DRUMS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal'];
-const FX_TRACKS = ['FX Reverb', 'FX Delay'];
+const FX_TRACKS = ['FX Reverb', 'FX Stutter'];
 const PATTERN_IDS = ['A', 'B', 'Fill'];
 
 const BASS_ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -698,7 +697,7 @@ function newPattern(n) {
 
 function newDoc() {
   return {
-    v: 5,
+    v: 6,
     numSteps: 16,
     bpm: 120,
     swing: 0,
@@ -711,7 +710,7 @@ function newDoc() {
       { pattern: 'A', repeats: 1 },
       { pattern: 'Fill', repeats: 1 }
     ],
-    fx: { revDecay: 2.5, delayFb: 0.35, delayTime: '8n', drive: 0 },
+    fx: { revDecay: 2.5, stutterFb: 0.82, stutterRate: '32n', drive: 0 },
     bass: { root: 'A', mode: 'Aeolian', timbre: '808', energy: 0.5, syncopation: 0.5, complexity: 0.5, octave: 1, seed: 20261103 },
     patterns: { A: newPattern(16), B: newPattern(16), Fill: newPattern(16) }
   };
@@ -733,10 +732,14 @@ function ensureDocShape(input) {
   d.kit = ['Modern Synth', '808 Style', 'Acoustic / Lo-Fi'].includes(input.kit) ? input.kit : base.kit;
 
   const fxIn = input.fx || {};
+  // the old delay's feedback (0.35) would barely ratchet, so older documents
+  // start from the stutter defaults rather than inherit a number that meant
+  // something else
+  const legacyFx = !input.v || input.v < 6;
   d.fx = {
     revDecay: clamp(Number(fxIn.revDecay) || 2.5, 0.2, 8),
-    delayFb: clamp(Number(fxIn.delayFb) || 0.35, 0, 0.9),
-    delayTime: ['16n', '8n', '8n.', '4n.'].includes(fxIn.delayTime) ? fxIn.delayTime : '8n',
+    stutterFb: legacyFx ? 0.82 : clamp(Number(fxIn.stutterFb) || 0.82, 0.1, 0.95),
+    stutterRate: !legacyFx && ['16n', '32n', '64n'].includes(fxIn.stutterRate) ? fxIn.stutterRate : '32n',
     drive: clamp(Number(fxIn.drive) || 0, 0, 100)
   };
 
@@ -966,7 +969,7 @@ const ARTICULATION = {
 
 /* ------------------------------- audio --------------------------------- */
 const synths = {};
-let bus, comp, driveNode, reverb, delay, reverbSend, delaySend, limiter, bassSynth;
+let bus, comp, driveNode, reverb, stutter, stutterTone, reverbSend, stutterSend, limiter, bassSynth;
 let toneSequence = null;
 
 async function setupAudio() {
@@ -982,12 +985,14 @@ async function setupAudio() {
   bus.connect(driveNode);
 
   reverbSend = new Tone.Gain(0);
-  delaySend = new Tone.Gain(0);
+  stutterSend = new Tone.Gain(0);
   reverb = new Tone.Reverb({ decay: doc.fx.revDecay, preDelay: 0.02, wet: 1 });
-  delay = new Tone.FeedbackDelay({ delayTime: doc.fx.delayTime, feedback: doc.fx.delayFb, wet: 1 });
+  // a very short, high-feedback delay is a ratchet: it chops what it is fed into repeats
+  stutter = new Tone.FeedbackDelay({ delayTime: doc.fx.stutterRate, feedback: doc.fx.stutterFb, wet: 1 });
+  stutterTone = new Tone.Filter({ type: 'lowpass', frequency: 7000, Q: 0.4 });
 
   bus.connect(reverbSend); reverbSend.connect(reverb); reverb.connect(comp);
-  bus.connect(delaySend);  delaySend.connect(delay);   delay.connect(comp);
+  bus.connect(stutterSend); stutterSend.connect(stutter); stutter.connect(stutterTone); stutterTone.connect(comp);
 
   // the IR render is the slowest part of startup; don't let it hold the engine hostage
   await Promise.race([
@@ -1113,18 +1118,26 @@ function jitter(time, amount) {
   return base + (Math.random() * 2 - 1) * amount * 0.012;
 }
 
-/** Per-step FX send: set the send level, then decay it over the effect's tail.
- *  Nothing resets the send on empty steps, so the effect is audible for its full tail. */
+/** Per-step FX send. Reverb opens for its tail; the stutter opens for one
+ *  slice so the ratchet repeats that slice instead of smearing the whole bar. */
 function fireSend(inst, cell, time) {
-  const send = inst === 'FX Reverb' ? reverbSend : delaySend;
+  const isReverb = inst === 'FX Reverb';
+  const send = isReverb ? reverbSend : stutterSend;
   if (!send) return;
-  const tail = inst === 'FX Reverb'
-    ? clamp(doc.fx.revDecay, 0.15, 8)
-    : clamp(Tone.Time(doc.fx.delayTime).toSeconds() * 3, 0.2, 4);
+
   const g = send.gain;
+  const level = clamp(cell.velocity, 0.02, 1);
+  const slice = clamp(Tone.Time(doc.fx.stutterRate).toSeconds(), 0.008, 0.2);
+
   g.cancelScheduledValues(time);
-  g.setValueAtTime(clamp(cell.velocity, 0.02, 1), time);
-  g.exponentialRampToValueAtTime(0.0001, time + tail);
+  g.setValueAtTime(level, time);
+
+  if (isReverb) {
+    g.exponentialRampToValueAtTime(0.0001, time + clamp(doc.fx.revDecay, 0.15, 8));
+  } else {
+    // gate shorter than one repeat, otherwise the copies overlap into a smear
+    g.linearRampToValueAtTime(0.0001, time + slice * (0.3 + level * 0.3));
+  }
 }
 
 let lastPreviewAt = 0;
@@ -1407,9 +1420,9 @@ function syncControlsFromDoc() {
 
   $('#rev-decay').value = Math.round(doc.fx.revDecay * 10);
   $('#rev-display').textContent = doc.fx.revDecay.toFixed(1) + 's';
-  $('#delay-fb').value = Math.round(doc.fx.delayFb * 100);
-  $('#fb-display').textContent = Math.round(doc.fx.delayFb * 100) + '%';
-  $('#delay-time').value = doc.fx.delayTime;
+  $('#delay-fb').value = Math.round(doc.fx.stutterFb * 100);
+  $('#fb-display').textContent = Math.round(doc.fx.stutterFb * 100) + '%';
+  $('#delay-time').value = doc.fx.stutterRate;
   $('#drive').value = doc.fx.drive;
   $('#drive-display').textContent = Math.round(doc.fx.drive) + '%';
 
@@ -1847,7 +1860,7 @@ The human places hits; you answer with a small, musical set of edits.
 HARD RULES
 - Steps are 1-based integers, 1..${n}.
 - Allowed instruments exactly: ${INSTRUMENTS.join(', ')}.
-- "FX Reverb" and "FX Delay" are per-step send levels, not sounds: velocity = how much of that step goes to the effect.
+- "FX Reverb" and "FX Stutter" are per-step send levels, not sounds: velocity = how hard that step hits the effect. Stutter is a short ratchet that repeats a slice of the mix.
 - Never place the same instrument twice on the same step.
 - Velocity 0.1-1.0. Ghost notes 0.2-0.4, accents 0.9-1.0.
 - Keep the low end coherent: avoid stacking Kick and Tom on the same step unless it is a deliberate fill.
@@ -2265,9 +2278,9 @@ let lastRevDecay = null;
 
 function applyFxParams() {
   if (!ui.audioReady) return;
-  if (delay) {
-    delay.feedback.rampTo(doc.fx.delayFb, 0.05);
-    delay.delayTime.rampTo(Tone.Time(doc.fx.delayTime).toSeconds(), 0.08);
+  if (stutter) {
+    stutter.feedback.rampTo(doc.fx.stutterFb, 0.05);
+    stutter.delayTime.rampTo(Tone.Time(doc.fx.stutterRate).toSeconds(), 0.05);
   }
   if (driveNode) {
     driveNode.distortion = 0.15 + (doc.fx.drive / 100) * 0.8;
@@ -3174,16 +3187,16 @@ function boot() {
 
   const fb = $('#delay-fb');
   fb.addEventListener('input', () => {
-    doc.fx.delayFb = parseInt(fb.value, 10) / 100;
-    $('#fb-display').textContent = Math.round(doc.fx.delayFb * 100) + '%';
+    doc.fx.stutterFb = parseInt(fb.value, 10) / 100;
+    $('#fb-display').textContent = Math.round(doc.fx.stutterFb * 100) + '%';
     applyFxParams();
   });
-  fb.addEventListener('change', () => commit('delay feedback'));
+  fb.addEventListener('change', () => commit('stutter repeats'));
 
   $('#delay-time').addEventListener('change', e => {
-    doc.fx.delayTime = e.target.value;
+    doc.fx.stutterRate = e.target.value;
     applyFxParams();
-    commit('delay time');
+    commit('stutter rate');
   });
 
   const dr = $('#drive');
