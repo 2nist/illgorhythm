@@ -489,6 +489,11 @@
     <label class="ctl-label block mb-1">Model</label>
     <input id="model-input" class="field mb-4" placeholder="gemini-2.5-flash" spellcheck="false">
 
+    <div id="stash-row" class="mb-4 hidden">
+      <button id="btn-restore-stash" class="btn w-full justify-center">Restore my pre-jam pattern</button>
+      <p id="stash-hint" class="text-[.65rem] mt-1.5" style="color:var(--muted)"></p>
+    </div>
+
     <div class="flex items-center justify-between gap-2">
       <button id="btn-reset-all" class="btn btn-danger">Reset everything</button>
       <div class="flex gap-2">
@@ -568,6 +573,7 @@ function writeJSON(key, value) {
 
 /* ---------------------------- configuration ---------------------------- */
 const STORE_KEY = 'illgorhythm.doc.v3';
+const STASH_KEY = 'illgorhythm.pre-jam.v1';
 const SETTINGS_KEY = 'illgorhythm.settings.v1';
 
 /** Master sequence length: a common multiple of every supported pattern length,
@@ -1057,6 +1063,7 @@ function syncControlsFromDoc() {
 function renderAIStatus() {
   const pill = $('#ai-pill');
   const hasKey = !!settings.apiKey;
+  pill.title = '';
 
   if (netGuest()) {
     pill.className = 'ok';
@@ -1218,6 +1225,44 @@ let saveTimer = null;
 function saveLocal() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => writeJSON(STORE_KEY, doc), 350);
+}
+
+/** Synchronous flush, used whenever a session ends so nothing is lost. */
+function persistNow() {
+  clearTimeout(saveTimer);
+  writeJSON(STORE_KEY, doc);
+}
+
+function docHasHits(d) {
+  return Object.keys(d.patterns || {}).some(pat =>
+    INSTRUMENTS.some(inst => (d.patterns[pat][inst] || []).some(cell => cell.active)));
+}
+
+/** Joining a jam replaces your grid, so keep a copy of what you had before. */
+function stashPreJamDoc() {
+  if (!docHasHits(doc)) return false;
+  writeJSON(STASH_KEY, { at: Date.now(), doc: cloneDoc() });
+  return true;
+}
+
+function restorePreJam() {
+  const stash = readJSON(STASH_KEY);
+  if (!stash || !stash.doc) {
+    logAction('system', 'No pre-jam pattern saved.');
+    return;
+  }
+  if (Net.role) {
+    logAction('system', 'Leave the jam session before restoring your own pattern.');
+    return;
+  }
+  doc = ensureDocShape(stash.doc);
+  syncControlsFromDoc();
+  renderGrid();
+  renderChainStrip();
+  updatePatternButtonsUI();
+  commit('restored pre-jam pattern');
+  closeSettings();
+  logAction('system', 'Restored the pattern you had before the jam.');
 }
 
 function saveSettings() { writeJSON(SETTINGS_KEY, settings); }
@@ -1767,6 +1812,16 @@ function setReverbDecay(seconds) {
 function openSettings() {
   $('#key-input').value = settings.apiKey || '';
   $('#model-input').value = settings.model || DEFAULT_MODEL;
+
+  const stash = readJSON(STASH_KEY);
+  const hasStash = !!(stash && stash.doc);
+  $('#stash-row').classList.toggle('hidden', !hasStash);
+  if (hasStash) {
+    const when = stash.at ? new Date(stash.at).toLocaleString() : 'earlier';
+    $('#stash-hint').textContent = `Saved ${when}. Restoring replaces the grid you are looking at.`;
+    $('#btn-restore-stash').disabled = !!Net.role;
+  }
+
   $('#settings-modal').showModal();
 }
 
@@ -2044,7 +2099,9 @@ function guestPeer() {
       Net.code = null;
       try { if (Net.peer) Net.peer.destroy(); } catch (e) { /* already gone */ }
       Net.peer = null;
-      logAction('system', 'The session ended — the host went offline.');
+      persistNow();
+      logAction('system', 'The session ended — the jam is saved here, so you can keep playing it.');
+      if (readJSON(STASH_KEY)) logAction('system', 'Your pre-jam pattern is still in ⚙ settings.');
       renderSessionUI();
     });
     conn.on('error', () => { /* handled by close */ });
@@ -2113,6 +2170,9 @@ function onGuestData(msg) {
   switch (msg.t) {
     case 'welcome':
       Net.names = Array.isArray(msg.names) ? msg.names : [];
+      if (stashPreJamDoc()) {
+        logAction('system', 'Your own pattern is stashed — ⚙ → Restore my pre-jam pattern to get it back.');
+      }
       applyRemoteDoc(msg.doc);
       if (msg.pat && doc.patterns[msg.pat]) {
         ui.playbackPatternId = msg.pat;
@@ -2204,6 +2264,7 @@ function leaveSession(silent) {
   Net.role = null;
   Net.code = null;
   Net.hostAttempts = 0;
+  persistNow();
   setTimeout(() => { Net.leaving = false; }, 1500);
   renderSessionUI();
   if (!silent) logAction('system', 'Left the session — you are playing solo again.');
@@ -2574,6 +2635,7 @@ function boot() {
   $('#btn-copy-invite').addEventListener('click', copyInvite);
 
   $('#btn-settings').addEventListener('click', openSettings);
+  $('#btn-restore-stash').addEventListener('click', restorePreJam);
   $('#btn-close-settings').addEventListener('click', closeSettings);
   $('#btn-save-settings').addEventListener('click', () => {
     settings.apiKey = $('#key-input').value.trim();
@@ -2597,7 +2659,7 @@ function boot() {
   });
 
   // save on the way out
-  window.addEventListener('beforeunload', () => writeJSON(STORE_KEY, doc));
+  window.addEventListener('beforeunload', persistNow);
 }
 
 boot();
