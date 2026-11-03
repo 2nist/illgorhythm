@@ -134,6 +134,11 @@
   .cell.fxrow.you{ background:var(--tan-dim); border-color:#a1794f; box-shadow:none; }
   .cell.fxrow.ai{ background:var(--teal-dim); border-color:#4f9a94; box-shadow:none; }
   .cell.fxrow.peer{ background:#4a8b86; border-color:#71b5af; box-shadow:none; }
+  .cell .note-label{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:.52rem; font-weight:800; letter-spacing:.02em; color:rgba(0,0,0,.6);
+    pointer-events:none; padding-top:.15rem;
+  }
   .cell .vel{
     position:absolute; left:0; bottom:0; width:100%; background:rgba(255,255,255,.34);
     pointer-events:none; transition:height .15s ease-out;
@@ -351,6 +356,7 @@
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 14l5-5-5-5"/><path stroke-linecap="round" stroke-linejoin="round" d="M20 9h-9a7 7 0 000 14h3"/></svg>
       </button>
       <button id="btn-fx" class="btn" title="Master FX">FX</button>
+      <button id="btn-bass" class="btn btn-teal" title="Bassline generator">Bass</button>
       <button id="btn-jam" class="btn btn-teal" title="Jam with a friend in real time">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path stroke-linecap="round" d="M3 20a6 6 0 0112 0"/><path stroke-linecap="round" d="M16 5a3 3 0 010 6"/><path stroke-linecap="round" d="M18 20a6 6 0 00-3-5.2"/></svg>
         Jam
@@ -429,6 +435,59 @@
         <input type="range" id="drive" min="0" max="100" value="0" class="w-full range-tan">
       </div>
     </div>
+  </div>
+
+  <!-- ============ BASS DRAWER ============ -->
+  <div id="bass-drawer" class="panel p-4 mt-3 hidden">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <h3 class="ctl-label">Bassline</h3>
+      <span class="text-[.65rem]" style="color:#6f6f79">built from your drum hits · alt-click a bass cell to change its pitch</span>
+    </div>
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div>
+        <label class="ctl-label mb-1 block">Key</label>
+        <select id="bass-root" class="select w-full"></select>
+      </div>
+      <div>
+        <label class="ctl-label mb-1 block">Mode</label>
+        <select id="bass-mode" class="select w-full"></select>
+      </div>
+      <div>
+        <label class="ctl-label mb-1 block">Timbre</label>
+        <select id="bass-timbre" class="select w-full">
+          <option value="808">808 (deep)</option>
+          <option value="smooth">Smooth sub</option>
+          <option value="warm">Warm synth</option>
+          <option value="plucky">Plucky</option>
+          <option value="acid">Acid</option>
+        </select>
+      </div>
+      <div>
+        <label class="ctl-label mb-1 block">Octave</label>
+        <select id="bass-octave" class="select w-full">
+          <option value="1">1</option><option value="2">2</option>
+          <option value="3">3</option><option value="4">4</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+      <div>
+        <label class="ctl-label flex justify-between mb-1"><span>Energy</span><span id="bass-energy-display" class="font-mono">50%</span></label>
+        <input type="range" id="bass-energy" min="0" max="100" value="50" class="w-full">
+      </div>
+      <div>
+        <label class="ctl-label flex justify-between mb-1"><span>Syncopation</span><span id="bass-sync-display" class="font-mono">50%</span></label>
+        <input type="range" id="bass-sync" min="0" max="100" value="50" class="w-full">
+      </div>
+      <div>
+        <label class="ctl-label flex justify-between mb-1"><span>Harmony</span><span id="bass-complex-display" class="font-mono">50%</span></label>
+        <input type="range" id="bass-complex" min="0" max="100" value="50" class="w-full range-tan">
+      </div>
+    </div>
+
+    <button id="btn-gen-bass" class="btn btn-teal w-full justify-center mt-4">Generate bassline</button>
   </div>
 
   <!-- ============ PROMPT + LOG ============ -->
@@ -593,10 +652,23 @@ const DEFAULT_MODEL = 'gemini-2.5-flash';
 const BUILD = '2026-11-03 · hats';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-const INSTRUMENTS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal', 'FX Reverb', 'FX Delay'];
-const DRUMS = INSTRUMENTS.filter(i => !i.startsWith('FX'));
+const BASS_TRACK = 'Bass';
+const INSTRUMENTS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal', BASS_TRACK, 'FX Reverb', 'FX Delay'];
+const DRUMS = ['Kick', 'Snare', 'Rim', 'Cl Hat', 'Op Hat', 'Tom', 'Cymbal'];
 const FX_TRACKS = ['FX Reverb', 'FX Delay'];
 const PATTERN_IDS = ['A', 'B', 'Fill'];
+
+const BASS_ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const BASS_MODES = {
+  Ionian: [0, 2, 4, 5, 7, 9, 11],
+  Dorian: [0, 2, 3, 5, 7, 9, 10],
+  Phrygian: [0, 1, 3, 5, 7, 8, 10],
+  Lydian: [0, 2, 4, 6, 7, 9, 11],
+  Mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  Aeolian: [0, 2, 3, 5, 7, 8, 10],
+  Locrian: [0, 1, 3, 5, 6, 8, 10]
+};
+const BASS_TIMBRES = ['808', 'smooth', 'warm', 'plucky', 'acid'];
 
 const settings = Object.assign(
   { apiKey: '', model: DEFAULT_MODEL, aiEnabled: true },
@@ -604,7 +676,17 @@ const settings = Object.assign(
 );
 
 /* ------------------------------- model --------------------------------- */
-function blankCell() { return { active: false, owner: null, velocity: 1 }; }
+function blankCell(note) { return { active: false, owner: null, velocity: 1, note: note == null ? null : note }; }
+
+/** Bass cells need a pitch and a length; drums ignore both. */
+function bassCell(note, velocity, dur) {
+  return { active: true, owner: 'you', velocity, note, dur: dur || '8n' };
+}
+
+function midiToName(note) {
+  if (!Number.isFinite(note)) return '–';
+  return BASS_ROOTS[((note % 12) + 12) % 12] + (Math.floor(note / 12) - 1);
+}
 
 function newPattern(n) {
   const p = {};
@@ -616,7 +698,7 @@ function newPattern(n) {
 
 function newDoc() {
   return {
-    v: 3,
+    v: 4,
     numSteps: 16,
     bpm: 120,
     swing: 0,
@@ -630,6 +712,7 @@ function newDoc() {
       { pattern: 'Fill', repeats: 1 }
     ],
     fx: { revDecay: 2.5, delayFb: 0.35, delayTime: '8n', drive: 0 },
+    bass: { root: 'A', mode: 'Aeolian', timbre: '808', energy: 0.5, syncopation: 0.5, complexity: 0.5, octave: 2, seed: 20261103 },
     patterns: { A: newPattern(16), B: newPattern(16), Fill: newPattern(16) }
   };
 }
@@ -657,6 +740,21 @@ function ensureDocShape(input) {
     drive: clamp(Number(fxIn.drive) || 0, 0, 100)
   };
 
+  const bassIn = input.bass || {};
+  // 'warm' was only ever the default before the 808 voice existed, so treat it
+  // as "not chosen" for older documents instead of keeping a stale synth tone
+  const legacyDefault = (!input.v || input.v < 4) && bassIn.timbre === 'warm';
+  d.bass = {
+    root: BASS_ROOTS.includes(bassIn.root) ? bassIn.root : 'A',
+    mode: BASS_MODES[bassIn.mode] ? bassIn.mode : 'Aeolian',
+    timbre: legacyDefault ? '808' : (BASS_TIMBRES.includes(bassIn.timbre) ? bassIn.timbre : '808'),
+    energy: clamp(Number(bassIn.energy) || 0.5, 0, 1),
+    syncopation: clamp(Number(bassIn.syncopation) || 0.5, 0, 1),
+    complexity: clamp(Number(bassIn.complexity) || 0.5, 0, 1),
+    octave: clamp(parseInt(bassIn.octave, 10) || 2, 0, 4),
+    seed: parseInt(bassIn.seed, 10) || 20261103
+  };
+
   d.patterns = {};
   PATTERN_IDS.forEach(pat => {
     const src = (input.patterns && input.patterns[pat]) || {};
@@ -666,11 +764,17 @@ function ensureDocShape(input) {
       out[inst] = Array.from({ length: d.numSteps }, (_, i) => {
         const c = arr[i];
         if (!c || !c.active) return blankCell();
-        return {
+        const cell = {
           active: true,
           owner: c.owner === 'ai' ? 'ai' : 'you',
-          velocity: clamp(Number(c.velocity) || 1, 0.05, 1)
+          velocity: clamp(Number(c.velocity) || 1, 0.05, 1),
+          note: null
         };
+        if (inst === BASS_TRACK) {
+          cell.note = Number.isFinite(c.note) ? c.note : 45;
+          cell.dur = typeof c.dur === 'string' ? c.dur : '8n';
+        }
+        return cell;
       });
     });
     d.patterns[pat] = out;
@@ -685,6 +789,96 @@ function ensureDocShape(input) {
   if (!d.chain.length) d.chain = base.chain;
 
   return d;
+}
+
+/* ---------------------------- bassline engine -------------------------- */
+/** Seeded RNG so a generated line is reproducible (and identical after a reload). */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function bassScaleNotes() {
+  const rootIndex = BASS_ROOTS.indexOf(doc.bass.root);
+  const base = (doc.bass.octave + 1) * 12 + Math.max(0, rootIndex);
+  const scale = BASS_MODES[doc.bass.mode].map(iv => base + iv);
+  return scale.concat(scale.map(n => n + 12));
+}
+
+/** Drum hits decide the note: kick=root, snare=fifth/octave, hats=ghosts, toms=walk. */
+function suggestBassNote(pat, step, rnd) {
+  const scale = bassScaleNotes();
+  const root = scale[0];
+  const third = scale[2];
+  const fifth = scale[4];
+  const octave = scale[7];
+  const p = doc.bass;
+  const roll = rnd || (() => 0.5);
+  const hit = inst => !!(pat[inst] && pat[inst][step] && pat[inst][step].active);
+  const vel = inst => (pat[inst] && pat[inst][step] ? pat[inst][step].velocity : 1);
+
+  if (hit('Kick')) {
+    if (p.energy > 0.7 && roll() > 0.7) return { note: octave, dur: '8n', velocity: vel('Kick') };
+    return { note: root, dur: p.syncopation > 0.6 ? '8n' : '4n', velocity: vel('Kick') };
+  }
+  if (hit('Snare') || hit('Rim')) {
+    const rand = roll();
+    const restChance = Math.max(0.1, 0.6 - p.complexity * 0.5);
+    const fifthChance = 0.5 * p.complexity;
+    if (rand <= restChance) return null;
+    const inst = hit('Snare') ? 'Snare' : 'Rim';
+    if (rand > restChance + fifthChance) return { note: octave, dur: '8n', velocity: vel(inst) };
+    return { note: fifth, dur: '8n', velocity: vel(inst) * 0.9 };
+  }
+  if (hit('Tom')) {
+    const walk = scale[Math.floor(roll() * scale.length)];
+    return { note: walk, dur: '16n', velocity: vel('Tom') * 0.8 };
+  }
+  // hats are the most frequent hit, so they speak last: fills and backbeats win first
+  if (hit('Cl Hat') || hit('Op Hat') || hit('Cymbal')) {
+    if (roll() < p.energy * 0.6) {
+      const inst = hit('Cl Hat') ? 'Cl Hat' : (hit('Op Hat') ? 'Op Hat' : 'Cymbal');
+      return {
+        note: p.syncopation > 0.6 ? third : root,
+        dur: '16n',
+        velocity: vel(inst) * (0.25 + p.energy * 0.45)
+      };
+    }
+    return null;
+  }
+  return null;
+}
+
+function bassNoteForStep(pat, step) {
+  return suggestBassNote(pat, step, null) || { note: bassScaleNotes()[0], dur: '8n', velocity: 0.8 };
+}
+
+function buildBassline(patId) {
+  const pat = doc.patterns[patId];
+  const rnd = mulberry32(doc.bass.seed);
+  let count = 0;
+  pat[BASS_TRACK] = Array.from({ length: doc.numSteps }, (_, step) => {
+    const hit = suggestBassNote(pat, step, rnd);
+    if (!hit) return blankCell();
+    count++;
+    return { active: true, owner: 'ai', velocity: clamp(hit.velocity, 0.15, 1), note: hit.note, dur: hit.dur };
+  });
+  return count;
+}
+
+function regenerateBass() {
+  doc.bass.seed = (Math.imul(doc.bass.seed, 1664525) + 1013904223) >>> 0;
+  const count = buildBassline(ui.editPatternId);
+  renderGrid();
+  commit('generate bassline');
+  const scale = bassScaleNotes();
+  logAction('ai', `Bassline: ${count} notes in ${doc.bass.root} ${doc.bass.mode}, ${doc.bass.timbre} tone.`,
+    `${midiToName(scale[0])} · alt-click a bass cell to change pitch`);
 }
 
 /* ------------------------------ runtime UI state ----------------------- */
@@ -765,12 +959,13 @@ const ARTICULATION = {
   'Cl Hat': { type: 'metal',    dur: '32n' },
   'Op Hat': { type: 'metal',    dur: '8n' },
   'Tom':    { type: 'membrane', note: 'G2', dur: '8n' },
-  'Cymbal': { type: 'metal',    dur: '2n' }
+  'Cymbal': { type: 'metal',    dur: '2n' },
+  'Bass':   { type: 'bass',     dur: '8n' }
 };
 
 /* ------------------------------- audio --------------------------------- */
 const synths = {};
-let bus, comp, driveNode, reverb, delay, reverbSend, delaySend, limiter;
+let bus, comp, driveNode, reverb, delay, reverbSend, delaySend, limiter, bassSynth;
 let toneSequence = null;
 
 async function setupAudio() {
@@ -800,9 +995,78 @@ async function setupAudio() {
   ]);
   lastRevDecay = doc.fx.revDecay;
   loadDrumKit(doc.kit);
+
+  applyBassTimbre();
+
   initSequence();
   Tone.Transport.bpm.value = doc.bpm;
   applySwing();
+}
+
+let bassKind = null;
+
+function buildBassVoice() {
+  if (!bus) return;
+  const timbre = doc.bass.timbre;
+  const kind = (timbre === '808' || timbre === 'smooth') ? 'membrane' : 'mono';
+  if (bassSynth && bassKind === kind) return;
+
+  if (bassSynth) { try { bassSynth.dispose(); } catch (e) { /* already gone */ } }
+  bassKind = kind;
+
+  if (kind === 'membrane') {
+    const smooth = timbre === 'smooth';
+    // an 808 is a sine with a fast pitch drop and a long tail, not a filtered saw
+    bassSynth = new Tone.MembraneSynth({
+      pitchDecay: smooth ? 0.008 : 0.022,
+      octaves: smooth ? 0.6 : 2,
+      oscillator: { type: 'sine' },
+      envelope: {
+        attack: 0.002,
+        decay: smooth ? 0.9 : 0.6,
+        sustain: smooth ? 0.14 : 0.04,
+        release: smooth ? 1.7 : 1.2
+      },
+      volume: 1
+    }).connect(bus);
+  } else {
+    bassSynth = new Tone.MonoSynth({
+      oscillator: { type: 'square' },
+      filter: { Q: 2, type: 'lowpass', rolloff: -24 },
+      envelope: { attack: 0.01, decay: 0.4, sustain: 0.2, release: 0.6 },
+      filterEnvelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.6, baseFrequency: 120, octaves: 4 },
+      volume: -2
+    }).connect(bus);
+  }
+
+  synths[BASS_TRACK] = bassSynth;
+  delete lastTriggerAt[BASS_TRACK];
+}
+
+/** Morph the synth voice to the chosen timbre. */
+function applyBassTimbre() {
+  buildBassVoice();
+  if (!bassSynth || bassKind !== 'mono') return;
+  const set = (param, value) => { try { param.value = value; } catch (e) { /* not a param */ } };
+  const timbre = doc.bass.timbre;
+
+  if (timbre === 'acid') {
+    bassSynth.oscillator.type = 'sawtooth';
+    set(bassSynth.filter.Q, 6);
+    set(bassSynth.filterEnvelope.octaves, 5);
+    set(bassSynth.filterEnvelope.decay, 0.2);
+  } else if (timbre === 'plucky') {
+    bassSynth.oscillator.type = 'square';
+    set(bassSynth.filter.Q, 1.2);
+    set(bassSynth.filterEnvelope.octaves, 3);
+    set(bassSynth.filterEnvelope.decay, 0.1);
+    set(bassSynth.envelope.decay, 0.12);
+  } else {
+    bassSynth.oscillator.type = 'square';
+    set(bassSynth.filter.Q, 2);
+    set(bassSynth.filterEnvelope.octaves, 4);
+    set(bassSynth.envelope.decay, 0.4);
+  }
 }
 
 function loadDrumKit(name) {
@@ -820,11 +1084,12 @@ const lastTriggerAt = Object.create(null);
 /** Single choke point for every drum hit — sequencer, previews and AI auditions.
  *  Tone's sources reject a start time that is not strictly increasing, and a
  *  preview click can land before a note the sequencer already queued ahead. */
-function triggerInstrument(inst, time, velocity) {
+function triggerInstrument(inst, time, velocity, note, dur) {
   const synth = synths[inst];
   if (!synth) return;
   const art = ARTICULATION[inst];
   if (!art) return;
+  if (art.type === 'bass' && !Number.isFinite(note)) return;
 
   let t = time;
   const last = lastTriggerAt[inst];
@@ -833,6 +1098,7 @@ function triggerInstrument(inst, time, velocity) {
 
   try {
     if (art.type === 'membrane') synth.triggerAttackRelease(art.note, art.dur, t, velocity);
+    else if (art.type === 'bass') synth.triggerAttackRelease(Tone.Frequency(note, 'midi').toFrequency(), dur || art.dur, t, velocity);
     else synth.triggerAttackRelease(art.dur, t, velocity);
   } catch (e) {
     console.warn('trigger failed', inst, e && e.message);
@@ -861,7 +1127,7 @@ function fireSend(inst, cell, time) {
 
 let lastPreviewAt = 0;
 
-function playPreview(inst, velocity) {
+function playPreview(inst, velocity, note, dur) {
   if (!ui.audioReady || Tone.context.state !== 'running') return;
   // Tone's noise and metal sources need strictly increasing start times, and
   // rapid clicks can land on the same Tone.now() tick.
@@ -872,7 +1138,7 @@ function playPreview(inst, velocity) {
       fireSend(inst, { velocity }, t);
       triggerInstrument('Kick', t, 0.55);   // something for the send to chew on
     } else {
-      triggerInstrument(inst, t, velocity);
+      triggerInstrument(inst, t, velocity, note, dur);
     }
   } catch (e) {
     // never let an audio hiccup swallow the edit that follows
@@ -907,6 +1173,13 @@ function initSequence() {
       const cell = pat[inst] && pat[inst][step];
       if (cell && cell.active) triggerInstrument(inst, jitter(time, hum), cell.velocity);
     });
+
+    if (!ui.muted.has(BASS_TRACK)) {
+      const bass = pat[BASS_TRACK] && pat[BASS_TRACK][step];
+      if (bass && bass.active) {
+        triggerInstrument(BASS_TRACK, jitter(time, hum * 0.5), bass.velocity, bass.note, bass.dur);
+      }
+    }
   }, steps, '16n');
 
   toneSequence.start(0);
@@ -1011,8 +1284,16 @@ function renderGrid() {
       el.dataset.step = i;
       el.tabIndex = 0;
       el.setAttribute('role', 'button');
-      el.setAttribute('aria-label',
-        `${inst} step ${i + 1}, ${cell.active ? 'active at velocity ' + fmtVel(cell.velocity) : 'empty'}`);
+      el.setAttribute('aria-label', inst === BASS_TRACK
+        ? `${inst} step ${i + 1}, ${cell.active ? midiToName(cell.note) + ' at velocity ' + fmtVel(cell.velocity) : 'empty'}`
+        : `${inst} step ${i + 1}, ${cell.active ? 'active at velocity ' + fmtVel(cell.velocity) : 'empty'}`);
+
+      if (cell.active && inst === BASS_TRACK) {
+        const label = document.createElement('div');
+        label.className = 'note-label';
+        label.textContent = midiToName(cell.note);
+        el.appendChild(label);
+      }
 
       if (cell.active) {
         const bar = document.createElement('div');
@@ -1027,7 +1308,7 @@ function renderGrid() {
         }
       }
 
-      el.addEventListener('click', e => handleCellClick(inst, i, e.shiftKey));
+      el.addEventListener('click', e => handleCellClick(inst, i, e.shiftKey, e.altKey));
       el.addEventListener('contextmenu', e => { e.preventDefault(); handleCellClick(inst, i, true); });
       el.addEventListener('keydown', e => {
         if (e.key === 'Enter') { e.preventDefault(); handleCellClick(inst, i, e.shiftKey); }
@@ -1098,6 +1379,19 @@ function renderChainStrip() {
   });
 }
 
+function fillBassSelects() {
+  $('#bass-root').replaceChildren(...BASS_ROOTS.map(n => {
+    const o = document.createElement('option');
+    o.value = n; o.textContent = n;
+    return o;
+  }));
+  $('#bass-mode').replaceChildren(...Object.keys(BASS_MODES).map(m => {
+    const o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    return o;
+  }));
+}
+
 function syncControlsFromDoc() {
   $('#bpm-slider').value = doc.bpm;
   $('#bpm-display').textContent = doc.bpm;
@@ -1116,6 +1410,18 @@ function syncControlsFromDoc() {
   $('#delay-time').value = doc.fx.delayTime;
   $('#drive').value = doc.fx.drive;
   $('#drive-display').textContent = Math.round(doc.fx.drive) + '%';
+
+  $('#bass-root').value = doc.bass.root;
+  $('#bass-mode').value = doc.bass.mode;
+  $('#bass-timbre').value = doc.bass.timbre;
+  $('#bass-octave').value = String(doc.bass.octave);
+  $('#bass-energy').value = Math.round(doc.bass.energy * 100);
+  $('#bass-energy-display').textContent = Math.round(doc.bass.energy * 100) + '%';
+  $('#bass-sync').value = Math.round(doc.bass.syncopation * 100);
+  $('#bass-sync-display').textContent = Math.round(doc.bass.syncopation * 100) + '%';
+  $('#bass-complex').value = Math.round(doc.bass.complexity * 100);
+  $('#bass-complex-display').textContent = Math.round(doc.bass.complexity * 100) + '%';
+  if (ui.audioReady) applyBassTimbre();
 
   if (ui.audioReady) {
     Tone.Transport.bpm.value = doc.bpm;
@@ -1197,9 +1503,24 @@ function logAction(actor, text, subtext) {
 }
 
 /* ----------------------------- interaction ----------------------------- */
-function handleCellClick(inst, step, clear) {
+function cycleBassPitch(cell) {
+  const scale = bassScaleNotes();
+  const index = scale.indexOf(cell.note);
+  cell.note = index === -1 ? scale[0] : scale[(index + 1) % scale.length];
+}
+
+function handleCellClick(inst, step, clear, alt) {
   const pat = doc.patterns[ui.editPatternId];
   const cell = pat[inst][step];
+
+  if (inst === BASS_TRACK && alt && cell.active && !clear) {
+    cycleBassPitch(cell);
+    renderGrid();
+    playPreview(inst, cell.velocity, cell.note, cell.dur);
+    logAction('you', `Bass ${midiToName(cell.note)} · step ${step + 1}`);
+    commit('bass pitch ' + midiToName(cell.note), { inst, step });
+    return;
+  }
 
   if (clear) {
     if (!cell.active) return;
@@ -1208,6 +1529,11 @@ function handleCellClick(inst, step, clear) {
     cell.velocity = 1;
     logAction('you', `Cleared ${inst} · step ${step + 1}`);
   } else {
+    if (inst === BASS_TRACK && !cell.active) {
+      const suggestion = bassNoteForStep(pat, step);
+      cell.note = suggestion.note;
+      cell.dur = suggestion.dur;
+    }
     // off → 1.0 → 0.6 → 0.3 → off
     if (!cell.active) { cell.active = true; cell.velocity = 1; cell.owner = 'you'; }
     else if (cell.velocity > 0.8) cell.velocity = 0.6;
@@ -1226,7 +1552,7 @@ function handleCellClick(inst, step, clear) {
   if (cell.active) myCells.add(key); else myCells.delete(key);
 
   renderGrid();
-  if (cell.active) playPreview(inst, cell.velocity);
+  if (cell.active) playPreview(inst, cell.velocity, cell.note, cell.dur);
 
   commit(`${cell.active ? 'place' : 'remove'} ${inst} ${step + 1}`, { inst, step });
   scheduleAutoRespond();
@@ -1333,13 +1659,16 @@ function saveSettings() { writeJSON(SETTINGS_KEY, settings); }
 
 /* ------------------------------ sharing -------------------------------- */
 function encodeShare() {
-  const payload = { n: doc.numSteps, bpm: doc.bpm, sw: doc.swing, hum: doc.humanize, g: doc.genre, k: doc.kit, p: {} };
+  const payload = { n: doc.numSteps, bpm: doc.bpm, sw: doc.swing, hum: doc.humanize, g: doc.genre, k: doc.kit, bs: doc.bass, p: {} };
   PATTERN_IDS.forEach(pat => {
     const compact = {};
     INSTRUMENTS.forEach(inst => {
       const hits = [];
       doc.patterns[pat][inst].forEach((c, i) => {
-        if (c.active) hits.push([i, Math.round(c.velocity * 100) / 100, c.owner === 'ai' ? 1 : 0]);
+        if (!c.active) return;
+        const hit = [i, Math.round(c.velocity * 100) / 100, c.owner === 'ai' ? 1 : 0];
+        if (inst === BASS_TRACK) { hit.push(c.note, c.dur || '8n'); }
+        hits.push(hit);
       });
       if (hits.length) compact[inst] = hits;
     });
@@ -1367,15 +1696,21 @@ function decodeShare(code) {
     d.humanize = payload.hum || 0;
     d.genre = payload.g || d.genre;
     d.kit = payload.k || d.kit;
+    if (payload.bs) d.bass = Object.assign({}, d.bass, payload.bs);
     d.patterns = {};
     PATTERN_IDS.forEach(pat => {
       d.patterns[pat] = newPattern(d.numSteps);
       const src = (payload.p && payload.p[pat]) || {};
       INSTRUMENTS.forEach(inst => {
         (src[inst] || []).forEach(hit => {
-          const [i, vel, ai] = hit;
+          const [i, vel, ai, note, dur] = hit;
           if (i >= 0 && i < d.numSteps) {
-            d.patterns[pat][inst][i] = { active: true, velocity: clamp(vel || 1, 0.05, 1), owner: ai ? 'ai' : 'you' };
+            const cell = { active: true, velocity: clamp(vel || 1, 0.05, 1), owner: ai ? 'ai' : 'you', note: null };
+            if (inst === BASS_TRACK) {
+              cell.note = Number.isFinite(note) ? note : 45;
+              cell.dur = typeof dur === 'string' ? dur : '8n';
+            }
+            d.patterns[pat][inst][i] = cell;
           }
         });
       });
@@ -1514,6 +1849,7 @@ HARD RULES
 - Never place the same instrument twice on the same step.
 - Velocity 0.1-1.0. Ghost notes 0.2-0.4, accents 0.9-1.0.
 - Keep the low end coherent: avoid stacking Kick and Tom on the same step unless it is a deliberate fill.
+- The "Bass" row is a single monophonic bassline. Its pitch is chosen automatically from the key, so just pick steps and velocities.
 - Fewer, better placed notes win. If the pattern is already busy, return few or zero ops.
 - JSON only, matching the schema. "reply" is one short spoken sentence, max 14 words.
 
@@ -1738,11 +2074,18 @@ function applyOpsTo(patId, ops, opts) {
         applied++;
         break;
 
-      case 'add':
+      case 'add': {
         if (cell.active) return;
-        pat[inst][idx] = { active: true, owner, velocity: clamp(Number(op.velocity) || 1, 0.1, 1) };
+        const built = { active: true, owner, velocity: clamp(Number(op.velocity) || 1, 0.1, 1), note: null };
+        if (inst === BASS_TRACK) {
+          const suggestion = bassNoteForStep(pat, idx);
+          built.note = suggestion.note;
+          built.dur = suggestion.dur;
+        }
+        pat[inst][idx] = built;
         applied++;
         break;
+      }
 
       case 'remove':
         if (!cell.active) return;
@@ -1875,8 +2218,13 @@ function exportMidi() {
         DRUMS.forEach(inst => {
           const cell = pat[inst][i];
           if (!cell.active || !MIDI_MAP[inst]) return;
-          timeline.push({ tick, note: MIDI_MAP[inst], vel: clamp(Math.round(cell.velocity * 127), 1, 127) });
+          timeline.push({ tick, note: MIDI_MAP[inst], vel: clamp(Math.round(cell.velocity * 127), 1, 127), ch: 9 });
         });
+
+        const bass = pat[BASS_TRACK][i];
+        if (bass.active && Number.isFinite(bass.note)) {
+          timeline.push({ tick, note: bass.note, vel: clamp(Math.round(bass.velocity * 127), 1, 127), ch: 0 });
+        }
       }
       bar++;
     }
@@ -1889,8 +2237,8 @@ function exportMidi() {
 
   const trackEvents = [];
   timeline.forEach(n => {
-    trackEvents.push({ tick: n.tick, order: 1, bytes: [0x99, n.note, n.vel] });          // note on, ch 10
-    trackEvents.push({ tick: n.tick + 16, order: 0, bytes: [0x89, n.note, 0] });          // note off
+    trackEvents.push({ tick: n.tick, order: 1, bytes: [0x90 | n.ch, n.note, n.vel] });    // note on
+    trackEvents.push({ tick: n.tick + 16, order: 0, bytes: [0x80 | n.ch, n.note, 0] });    // note off
   });
   trackEvents.sort((a, b) => (a.tick - b.tick) || (a.order - b.order));
 
@@ -2640,6 +2988,7 @@ function boot() {
   }
 
   // 2. render
+  fillBassSelects();
   syncControlsFromDoc();
   renderGrid();
   renderChainStrip();
@@ -2759,6 +3108,30 @@ function boot() {
   $('#btn-share').addEventListener('click', shareLink);
   $('#btn-export-midi').addEventListener('click', exportMidi);
   $('#btn-fx').addEventListener('click', () => $('#fx-drawer').classList.toggle('hidden'));
+  $('#btn-bass').addEventListener('click', () => $('#bass-drawer').classList.toggle('hidden'));
+  $('#btn-gen-bass').addEventListener('click', regenerateBass);
+
+  $('#bass-root').addEventListener('change', e => { doc.bass.root = e.target.value; commit('bass key'); regenerateBass(); });
+  $('#bass-mode').addEventListener('change', e => { doc.bass.mode = e.target.value; commit('bass mode'); regenerateBass(); });
+  $('#bass-octave').addEventListener('change', e => { doc.bass.octave = parseInt(e.target.value, 10); commit('bass octave'); regenerateBass(); });
+  $('#bass-timbre').addEventListener('change', e => {
+    doc.bass.timbre = e.target.value;
+    applyBassTimbre();
+    commit('bass timbre');
+    logAction('you', `Bass timbre: ${doc.bass.timbre}`);
+  });
+
+  const bassSlider = (id, field, display) => {
+    const el = $(id);
+    el.addEventListener('input', () => {
+      doc.bass[field] = parseInt(el.value, 10) / 100;
+      $(display).textContent = el.value + '%';
+    });
+    el.addEventListener('change', () => { commit('bass ' + field); regenerateBass(); });
+  };
+  bassSlider('#bass-energy', 'energy', '#bass-energy-display');
+  bassSlider('#bass-sync', 'syncopation', '#bass-sync-display');
+  bassSlider('#bass-complex', 'complexity', '#bass-complex-display');
   $('#btn-inspire').addEventListener('click', () => aiRequest('inspire'));
 
   // AI toggle
