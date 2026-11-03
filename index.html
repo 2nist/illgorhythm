@@ -649,7 +649,7 @@ const SETTINGS_KEY = 'illgorhythm.settings.v1';
 const MASTER_STEPS = 192;
 
 const DEFAULT_MODEL = 'gemini-2.5-flash';
-const BUILD = '2026-11-03 · hats';
+const BUILD = '2026-11-03 · bass';
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const BASS_TRACK = 'Bass';
@@ -698,7 +698,7 @@ function newPattern(n) {
 
 function newDoc() {
   return {
-    v: 4,
+    v: 5,
     numSteps: 16,
     bpm: 120,
     swing: 0,
@@ -712,7 +712,7 @@ function newDoc() {
       { pattern: 'Fill', repeats: 1 }
     ],
     fx: { revDecay: 2.5, delayFb: 0.35, delayTime: '8n', drive: 0 },
-    bass: { root: 'A', mode: 'Aeolian', timbre: '808', energy: 0.5, syncopation: 0.5, complexity: 0.5, octave: 2, seed: 20261103 },
+    bass: { root: 'A', mode: 'Aeolian', timbre: '808', energy: 0.5, syncopation: 0.5, complexity: 0.5, octave: 1, seed: 20261103 },
     patterns: { A: newPattern(16), B: newPattern(16), Fill: newPattern(16) }
   };
 }
@@ -744,6 +744,7 @@ function ensureDocShape(input) {
   // 'warm' was only ever the default before the 808 voice existed, so treat it
   // as "not chosen" for older documents instead of keeping a stale synth tone
   const legacyDefault = (!input.v || input.v < 4) && bassIn.timbre === 'warm';
+  const legacyOctave = (!input.v || input.v < 5) && (bassIn.octave == null || Number(bassIn.octave) === 2);
   d.bass = {
     root: BASS_ROOTS.includes(bassIn.root) ? bassIn.root : 'A',
     mode: BASS_MODES[bassIn.mode] ? bassIn.mode : 'Aeolian',
@@ -751,7 +752,7 @@ function ensureDocShape(input) {
     energy: clamp(Number(bassIn.energy) || 0.5, 0, 1),
     syncopation: clamp(Number(bassIn.syncopation) || 0.5, 0, 1),
     complexity: clamp(Number(bassIn.complexity) || 0.5, 0, 1),
-    octave: clamp(parseInt(bassIn.octave, 10) || 2, 0, 4),
+    octave: legacyOctave ? 1 : clamp(parseInt(bassIn.octave, 10) || 1, 0, 4),
     seed: parseInt(bassIn.seed, 10) || 20261103
   };
 
@@ -1016,18 +1017,19 @@ function buildBassVoice() {
 
   if (kind === 'membrane') {
     const smooth = timbre === 'smooth';
-    // an 808 is a sine with a fast pitch drop and a long tail, not a filtered saw
+    // an 808 is a sine with a pitch drop and a long tail. The drop is what the
+    // ear hears as "attack", so a shallow, slower glide keeps it soft.
     bassSynth = new Tone.MembraneSynth({
-      pitchDecay: smooth ? 0.008 : 0.022,
-      octaves: smooth ? 0.6 : 2,
+      pitchDecay: smooth ? 0.06 : 0.05,
+      octaves: smooth ? 0.35 : 1.1,
       oscillator: { type: 'sine' },
       envelope: {
-        attack: 0.002,
-        decay: smooth ? 0.9 : 0.6,
-        sustain: smooth ? 0.14 : 0.04,
-        release: smooth ? 1.7 : 1.2
+        attack: smooth ? 0.03 : 0.018,
+        decay: smooth ? 1.0 : 0.75,
+        sustain: smooth ? 0.16 : 0.06,
+        release: smooth ? 1.9 : 1.5
       },
-      volume: 1
+      volume: 2
     }).connect(bus);
   } else {
     bassSynth = new Tone.MonoSynth({
