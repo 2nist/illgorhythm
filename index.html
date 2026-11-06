@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,19 +12,23 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,600;0,800;1,800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="design-system/tokens.css">
+<link rel="stylesheet" href="design-system/theme-studio.css">
+<link rel="stylesheet" href="design-system/components.css">
 <style>
   :root{
-    --bg:#131315;
-    --panel:#1b1b1e;
-    --panel-2:#212125;
-    --panel-3:#292930;
-    --line:#2e2e35;
-    --text:#f1ede6;
-    --muted:#8d8d96;
-    --teal:#5ec8c0;
-    --teal-dim:#2e6b67;
-    --tan:#d9a877;
-    --tan-dim:#7a5a38;
+    /* aliased onto the design-system contract - no literal colours left in this block */
+    --bg:var(--color-bg-canvas);
+    --panel:var(--color-bg-surface);
+    --panel-2:var(--color-bg-surface);
+    --panel-3:var(--color-bg-subtle);
+    --line:var(--color-border-default);
+    --text:var(--color-text-primary);
+    --muted:var(--color-text-secondary);
+    --teal:var(--color-accent-default);
+    --teal-dim:var(--color-accent-pressed);
+    --tan:#d9a877;      /* no role for a second accent - left as the app's own value */
+    --tan-dim:#7a5a38;  /* ditto */
     --cell:2.25rem;
     --gap:.5rem;
   }
@@ -367,13 +371,13 @@
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path stroke-linecap="round" d="M3 20a6 6 0 0112 0"/><path stroke-linecap="round" d="M16 5a3 3 0 010 6"/><path stroke-linecap="round" d="M18 20a6 6 0 00-3-5.2"/></svg>
         Jam
       </button>
-      <button id="btn-share" class="btn">Share</button>
-      <button id="btn-export-midi" class="btn btn-teal">Export MIDI</button>
+      <button id="btn-share" class="ds-button-secondary">Share</button>
+      <button id="btn-export-midi" class="ds-button-primary">Export MIDI</button>
       <button id="btn-inspire" class="btn btn-teal">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
         Inspire
       </button>
-      <button id="btn-clear" class="btn btn-danger">Clear</button>
+      <button id="btn-clear" class="ds-button-danger">Clear</button>
       <button id="btn-settings" class="btn" title="Settings">⚙</button>
     </div>
   </div>
