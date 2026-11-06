@@ -20,15 +20,15 @@
     /* aliased onto the design-system contract - no literal colours left in this block */
     --bg:var(--color-bg-canvas);
     --panel:var(--color-bg-surface);
-    --panel-2:var(--color-bg-surface);
+    --panel-2:var(--color-bg-raised);
     --panel-3:var(--color-bg-subtle);
-    --line:var(--color-border-default);
+    --line:var(--color-border-divider);
     --text:var(--color-text-primary);
     --muted:var(--color-text-secondary);
     --teal:var(--color-accent-default);
     --teal-dim:var(--color-accent-pressed);
-    --tan:#d9a877;      /* no role for a second accent - left as the app's own value */
-    --tan-dim:#7a5a38;  /* ditto */
+    --tan:var(--color-accent-secondary);
+    --tan-dim:#7a5a38;  /* the pressed tan: no state rung for the second accent yet */
     --cell:2.25rem;
     --gap:.5rem;
   }
@@ -372,12 +372,12 @@
         Jam
       </button>
       <button id="btn-share" class="ds-button-secondary">Share</button>
-      <button id="btn-export-midi" class="ds-button-primary">Export MIDI</button>
+      <button id="btn-export-midi" class="ds-button-primary ds-tinted">Export MIDI</button>
       <button id="btn-inspire" class="btn btn-teal">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
         Inspire
       </button>
-      <button id="btn-clear" class="ds-button-danger">Clear</button>
+      <button id="btn-clear" class="ds-button-danger ds-tinted">Clear</button>
       <button id="btn-settings" class="btn" title="Settings">⚙</button>
     </div>
   </div>

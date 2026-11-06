@@ -18,9 +18,11 @@
 html[data-theme="dark"] {
   --color-bg-canvas: #131315;
   --color-bg-surface: #1b1b1e;
+  --color-bg-raised: #212125;    /* --panel-2, the step the first pilot had to collapse */
   --color-bg-subtle: #292930;
   --color-bg-hover: #292930;
-  --color-border-default: #2e2e35;
+  --color-border-default: #3a3a42;  /* a control edge: visible against the panel */
+  --color-border-divider: #2e2e35;  /* --line: the app's whisper, for rules */
   --color-text-primary: #f1ede6;
   --color-text-secondary: #8d8d96;
   --color-text-disabled: #5a5a62;
@@ -29,6 +31,7 @@ html[data-theme="dark"] {
   --color-accent-pressed: #2e6b67;
   --color-accent-on: #0d1214;
   --color-accent-text: #5ec8c0;
+  --color-accent-secondary: #d9a877;  /* --tan, now a role rather than a literal */
   --color-focus-ring: #5ec8c0;
   --shadow-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.10);
 }

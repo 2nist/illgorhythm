@@ -64,6 +64,29 @@ out of vocabulary.
 effect tints (`#f3b3b3`, `#ffc9c9`), the logo gradient. Those are **content** colours — the sound of
 a voice, not chrome — and a semantic contract should not swallow them.
 
+## After v0.2.0
+
+The design system grew the four things this pilot asked for (`bg.raised`, `border.divider`,
+`accent.secondary`, `.ds-tinted`), and the remap is now exact. Same probe, before vs after:
+
+| Element | Original app | Pilot on v0.1.0 | Pilot on v0.2.0 |
+|---|---|---|---|
+| `.btn`, `.chip` | `#212125` | `#1b1b1e` ✗ | `#212125` ✓ |
+| `.panel` line | `#2e2e35` | `#2e2e35` | `#2e2e35` ✓ |
+| `body`, `.btn-teal`, `.btn-danger`, `.pat-btn`, `.play-btn`, `.toggle`, `.cell` | — | identical | identical |
+
+Zero delta across every element probed. The three swapped controls now carry design-system classes
+with no visual argument:
+
+| Control | App's own | Our component |
+|---|---|---|
+| Export MIDI | `rgba(94,200,192,.12)` + teal ink + 35% edge | `.ds-button-primary.ds-tinted` → **same values**, hairline as an inset shadow |
+| Clear | `rgba(248,113,113,.1)` + `#f8a3a3` ink | `.ds-button-danger.ds-tinted` → same wash, ink `#f87171` (a shade stronger) |
+| Share | `#212125` + `#f5f5f5` | `.ds-button-secondary` → `bg.subtle` `#292930` — one step lighter, the one place the app and the contract disagree about a secondary surface |
+
+`--tan` and `--tan-dim` are still partly literal: `accent.secondary` covers the tan itself, but there
+is no state rung for it, so the pressed tan stays the app's own `#7a5a38`.
+
 ## Verdict
 
 The contract survives contact: it absorbed a foreign, dark-first, teal-and-tan palette as a theme,
