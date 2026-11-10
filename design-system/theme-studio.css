@@ -10,9 +10,9 @@
  *   bg.subtle             #292930        --panel-3
  *   border.default        #2e2e35        --line
  *   text.primary          #f1ede6        --text
- *   text.secondary        #8d8d96        --muted
+ *   text.secondary        #91919a        --muted, raised to clear AA
  *   accent.default        #5ec8c0        --teal
- *   accent.pressed        #2e6b67        --teal-dim
+ *   accent.pressed        #3a8a84        --teal-dim, raised so accent.on reads 4.62:1
  *   status.danger         #f87171        kept from the contract (the app has no red of its own)
  */
 html[data-theme="dark"] {
@@ -21,14 +21,14 @@ html[data-theme="dark"] {
   --color-bg-raised: #212125;    /* --panel-2, the step the first pilot had to collapse */
   --color-bg-subtle: #292930;
   --color-bg-hover: #292930;
-  --color-border-default: #3a3a42;  /* a control edge: visible against the panel */
+  --color-border-default: #686871;  /* a control edge owes 3:1; #3a3a42 measured 1.53:1 */
   --color-border-divider: #2e2e35;  /* --line: the app's whisper, for rules */
   --color-text-primary: #f1ede6;
-  --color-text-secondary: #8d8d96;
+  --color-text-secondary: #91919a;   /* 4.62:1 on bg.subtle; #8d8d96 measured 4.39:1 */
   --color-text-disabled: #5a5a62;
   --color-accent-default: #5ec8c0;
   --color-accent-hover: #7ad6cf;
-  --color-accent-pressed: #2e6b67;
+  --color-accent-pressed: #3a8a84;   /* #2e6b67 left accent.on at 3.07:1; this reads 4.62:1 */
   --color-accent-on: #0d1214;
   --color-accent-text: #5ec8c0;
   --color-accent-secondary: #d9a877;  /* --tan, now a role rather than a literal */

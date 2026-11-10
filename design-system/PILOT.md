@@ -98,3 +98,18 @@ Recommended order: the **tinted variant** first (it is a `color-mix` of tokens w
 new tokens, and it is how three of the four apps style their primary), then **divider vs edge**,
 then the fourth neutral, then the second accent — the last being a real contract decision rather than
 an addition.
+
+## Tracking the contract (v1.15.0)
+
+`tokens.css` and `components.css` are copies, so they drift. They were refreshed to v1.15.0, which
+was measurable rather than cosmetic:
+
+- the two `--font-family-*` stacks were unquoted (`IBM Plex Mono, Courier Prime, …`), so a two-word
+  family name could be read as two items — v1.9.1 quoted them
+- `.ds-card`, `.ds-dialog` and `.ds-toast` still carried `max-width` (320/420/360px); a component
+  that caps its own width cannot be a full-width container, and they are gone from the contract
+- the demo panel said `design system v0.2.0` while the contract it loads was v1.15.0
+
+Re-checked after the refresh: `spec.py theme` reports **29 pairs, 0 failing** for both
+`tokens.css` and `theme-studio.css`, and a browser render shows the muted inks resolving through
+`var(--color-text-secondary)` (`#91919a`), not a literal.

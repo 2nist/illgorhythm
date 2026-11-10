@@ -29,7 +29,7 @@
       #ds-pilot.closed .body { display: none; }
     </style>
     <button class="toggle" type="button" aria-expanded="true">–</button>
-    <h2>design system v0.2.0</h2>
+    <h2>design system v1.15.0</h2>
     <div class="body" style="display:grid;gap:10px">
       <div class="row">
         <button class="ds-button-primary" type="button">Solid</button>
